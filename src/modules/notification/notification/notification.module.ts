@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ConfigModule } from '@nestjs/config';
@@ -14,6 +14,11 @@ import { BulkMarkReadHandler } from './application/commands/bulk-mark-read.handl
 import { BulkArchiveHandler } from './application/commands/bulk-archive.handler';
 import { NotificationController } from './interface/notification.controller';
 import { TemplatesModule } from '../templates/templates.module';
+import { PreferencesModule } from '../preferences/preferences.module';
+import { PriorityQueueModule } from '../priority-queue/priority-queue.module';
+import { AuthServiceModule } from '../../../infrastructure/external/auth-service/auth-service.module';
+import { NovuModule } from '../../../infrastructure/external/novu/novu.module';
+import { CircuitBreakerModule } from '../../../infrastructure/external/circuit-breaker/circuit-breaker.module';
 
 // Schemas
 import {
@@ -24,18 +29,26 @@ import {
   UserNotification,
   UserNotificationSchema,
 } from '../../../infrastructure/database/schemas/user-notification.schema';
+import { User, UserSchema } from '../../../infrastructure/database/schemas/user.schema';
 
 // Infrastructure
 import { NotificationRepositoryImpl } from './infrastructure/notification.repository.impl';
+import { NotificationProcessingService } from './application/services/notification-processing.service';
 
 @Module({
   imports: [
     CqrsModule,
     ConfigModule,
     TemplatesModule,
+    PreferencesModule, // ⭐ For UserPreferencesRepository
+    forwardRef(() => PriorityQueueModule), // ⭐ For PriorityQueueService (forwardRef để tránh circular dependency)
+    AuthServiceModule, // ⭐ For AuthServiceClient
+    NovuModule, // ⭐ For NovuWorkflowService
+    CircuitBreakerModule, // ⭐ For CircuitBreakerService
     MongooseModule.forFeature([
       { name: Notification.name, schema: NotificationSchema },
       { name: UserNotification.name, schema: UserNotificationSchema },
+      { name: User.name, schema: UserSchema },
     ]),
   ],
   controllers: [NotificationController],
@@ -62,6 +75,9 @@ import { NotificationRepositoryImpl } from './infrastructure/notification.reposi
     MarkAllAsReadHandler,
     BulkMarkReadHandler,
     BulkArchiveHandler,
+
+    // Application Services
+    NotificationProcessingService, // ⭐ Service để process notification events
   ],
   exports: [
     RedisService,
@@ -76,6 +92,9 @@ import { NotificationRepositoryImpl } from './infrastructure/notification.reposi
     MarkAllAsReadHandler,
     BulkMarkReadHandler,
     BulkArchiveHandler,
+
+    // Application Services
+    NotificationProcessingService, // ⭐ Export để các module khác có thể dùng
   ],
 })
 export class NotificationModule {}

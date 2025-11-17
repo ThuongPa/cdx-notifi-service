@@ -11,6 +11,8 @@ import { CircuitBreakerService } from '../../../../../infrastructure/external/ci
 import { EmergencyOverridePolicy } from '../../../preferences/domain/policies/emergency-override.policy';
 import { TemplateSelectionService } from '../../../templates/application/services/template-selection.service';
 import { Injectable, Get, Param, Res, Logger, Inject } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { Type } from 'class-transformer';
 import { NotificationRepository } from '../../domain/notification.repository';
 import { UserPreferencesRepository } from '../../../preferences/domain/user-preferences.repository';
@@ -18,6 +20,7 @@ import { UserPreferences } from '../../../preferences/domain/user-preferences.en
 import { NotificationChannelVO } from '../../domain/value-objects/notification-channel.vo';
 import { ConfigService } from '@nestjs/config';
 import { PriorityQueueService } from '../../../priority-queue/priority-queue.service';
+import { User, UserDocument } from '../../../../../infrastructure/database/schemas/user.schema';
 
 export interface ProcessNotificationEventParams {
   title: string;
@@ -46,6 +49,8 @@ export class NotificationProcessingService {
     private readonly notificationRepository: NotificationRepository,
     @Inject('UserPreferencesRepository')
     private readonly userPreferencesRepository: UserPreferencesRepository,
+    @InjectModel(User.name)
+    private readonly userModel: Model<UserDocument>,
     private readonly authServiceClient: AuthServiceClient,
     private readonly novuWorkflowService: NovuWorkflowService,
     private readonly circuitBreakerService: CircuitBreakerService,
@@ -102,6 +107,7 @@ export class NotificationProcessingService {
 
   /**
    * Get target users based on roles and individual targeting
+   * If no targetRoles and targetUsers, get all active users from MongoDB
    */
   private async getTargetUsers(notification: NotificationAggregate): Promise<UserTargetingResult> {
     const userIds: string[] = [];
@@ -125,6 +131,22 @@ export class NotificationProcessingService {
           this.logger.error(`Failed to get users for role ${role}: ${error.message}`);
           // Continue with other roles
         }
+      }
+    }
+
+    // ⭐ If no targetRoles and targetUsers, get all active users from MongoDB
+    if (notification.targetRoles.length === 0 && notification.targetUsers.length === 0) {
+      this.logger.log(
+        'No targetRoles or targetUsers specified, getting all active users from MongoDB',
+      );
+      try {
+        const allUsers = await this.userModel.find({ isActive: true }).exec();
+        const allUserIds = allUsers.map((user) => user.userId || user._id);
+        userIds.push(...allUserIds);
+        this.logger.log(`Found ${allUsers.length} active users from MongoDB`);
+      } catch (error) {
+        this.logger.error(`Failed to get all users from MongoDB: ${error.message}`, error.stack);
+        // Continue without users
       }
     }
 
@@ -216,6 +238,7 @@ export class NotificationProcessingService {
       for (const userId of userIds) {
         try {
           // Create notification message for priority queue
+          // Support sourceService, contentId, redirectUrl from notification data
           const notificationMessage = {
             id: notification.id,
             userId: userId,
@@ -226,6 +249,14 @@ export class NotificationProcessingService {
               channels: notification.channels.map((ch) => ch.getValue()),
               data: notification.data,
               notificationId: notification.id,
+              // Support redirect URL resolution
+              sourceService: notification.data?.sourceService,
+              contentId: notification.data?.contentId,
+              contentType: notification.data?.contentType,
+              redirectUrl: notification.data?.redirectUrl,
+              // Legacy support
+              taskId: notification.data?.taskId,
+              announcementId: notification.data?.announcementId,
             },
             priority: notification.priority.getValue(),
             scheduledAt: undefined,

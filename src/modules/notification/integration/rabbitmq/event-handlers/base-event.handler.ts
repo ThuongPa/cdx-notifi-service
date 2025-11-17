@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 export interface BaseEventDto {
-  eventId: string;
+  eventId?: string;
   eventType: string;
-  aggregateId: string;
-  aggregateType: string;
-  timestamp: Date;
+  aggregateId?: string;
+  aggregateType?: string;
+  timestamp?: Date | string;
   payload: any;
   correlationId?: string;
   metadata?: any;

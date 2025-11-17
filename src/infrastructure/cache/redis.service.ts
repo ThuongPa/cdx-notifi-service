@@ -13,14 +13,21 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     const redisConfig = this.configService.get('redis');
 
-    this.client = createClient({
+    // Build Redis client config - only include password if it's provided
+    const clientConfig: any = {
       socket: {
         host: redisConfig.host,
         port: redisConfig.port,
       },
-      password: redisConfig.password,
       database: redisConfig.db,
-    });
+    };
+
+    // Only add password if it's provided and not empty
+    if (redisConfig.password && redisConfig.password.trim() !== '') {
+      clientConfig.password = redisConfig.password;
+    }
+
+    this.client = createClient(clientConfig);
 
     this.client.on('_', (_) => {
       this.logger.error('_ _ _:', _);

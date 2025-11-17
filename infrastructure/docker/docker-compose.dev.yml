@@ -3,17 +3,19 @@ version: '3.8'
 services:
   # MongoDB Database
   mongodb:
-    image: mongo:6.0
+    image: mongo:7.0
     container_name: notification-mongodb-dev
     restart: unless-stopped
     ports:
-      - '27018:27017'
+      - '27017:27017'
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: password123
       MONGO_INITDB_DATABASE: notification-service
     volumes:
       - mongodb_data:/data/db
+    # ⭐ Add stop grace period for proper shutdown (ensure data is flushed)
+    stop_grace_period: 30s
     networks:
       - notification-network
 

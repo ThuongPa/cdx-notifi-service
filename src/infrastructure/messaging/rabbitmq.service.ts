@@ -116,6 +116,16 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
       'notification.*',
     );
 
+    // Bind loaphuong events to notification queue
+    this.logger.log(
+      `Binding queue ${rabbitmqConfig.queues.notificationQueue.name} to ${rabbitmqConfig.exchanges.notifications.name} with routing key loaphuong.*`,
+    );
+    await this.channel?.bindQueue(
+      rabbitmqConfig.queues.notificationQueue.name,
+      rabbitmqConfig.exchanges.notifications.name,
+      'loaphuong.*',
+    );
+
     // Bind to auth events (for user synchronization)
     this.logger.log(
       `Binding queue ${rabbitmqConfig.queues.notificationQueue.name} to auth.exchange with routing key auth.*`,
@@ -183,31 +193,65 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async consumeMessage(queue: string, callback: (message: any) => Promise<void>): Promise<void> {
+  async consumeMessage(
+    queue: string,
+    callback: (message: any) => Promise<void>,
+    options?: { consumerTag?: string; prefetch?: number },
+  ): Promise<void> {
     if (!this.channel) {
       this.logger.warn('RabbitMQ channel not available, cannot consume messages');
       throw new Error('RabbitMQ channel not available');
     }
 
     try {
-      this.logger.log(`Starting to consume messages from queue: ${queue}`);
-      await this.channel.consume(queue, async (msg: any) => {
-        if (msg) {
-          try {
-            const message = JSON.parse(msg.content.toString());
-            this.logger.debug(`Processing message from queue ${queue}:`, {
-              eventType: message.eventType,
-              eventId: message.eventId,
-            });
-            await callback(message);
-            this.channel.ack(msg);
-          } catch (error) {
-            this.logger.error('Error processing message:', error);
-            this.channel.nack(msg, false, false); // Reject and don't requeue
-          }
-        }
+      // Set prefetch if provided to control message distribution
+      if (options?.prefetch !== undefined) {
+        await this.channel.prefetch(options.prefetch);
+        this.logger.log(`Set prefetch to ${options.prefetch} for queue: ${queue}`);
+      }
+
+      // Generate unique consumer tag if not provided
+      const consumerTag =
+        options?.consumerTag ||
+        `consumer-${queue}-${process.pid}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+
+      this.logger.log(`Starting to consume messages from queue: ${queue}`, {
+        consumerTag,
+        prefetch: options?.prefetch,
       });
-      this.logger.log(`Successfully started consuming from queue: ${queue}`);
+
+      await this.channel.consume(
+        queue,
+        async (msg: any) => {
+          if (msg) {
+            try {
+              const message = JSON.parse(msg.content.toString());
+              this.logger.debug(`Processing message from queue ${queue}:`, {
+                eventType: message.eventType,
+                eventId: message.eventId,
+                consumerTag,
+              });
+              await callback(message);
+              this.channel.ack(msg);
+            } catch (error) {
+              this.logger.error('Error processing message:', {
+                error: error.message,
+                queue,
+                consumerTag,
+              });
+              this.channel.nack(msg, false, false); // Reject and don't requeue
+            }
+          }
+        },
+        {
+          consumerTag, // ⭐ Unique consumer tag để tránh conflict với consumer khác
+          noAck: false,
+        },
+      );
+
+      this.logger.log(`Successfully started consuming from queue: ${queue}`, {
+        consumerTag,
+      });
     } catch (error) {
       this.logger.error('Error consuming messages:', error);
       throw error;

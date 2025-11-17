@@ -33,6 +33,7 @@ import { SchedulingModule } from './modules/notification/scheduling/scheduling.m
 import { WebhookModule } from './modules/notification/webhook/webhook.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { PreferencesModule } from './modules/notification/preferences/preferences.module';
+import { InAppModule } from './modules/notification/in-app/in-app.module';
 
 @Module({
   imports: [
@@ -97,6 +98,7 @@ import { PreferencesModule } from './modules/notification/preferences/preference
     WebhookModule,
     AuthModule,
     PreferencesModule,
+    InAppModule,
   ],
   controllers: [],
   providers: [],

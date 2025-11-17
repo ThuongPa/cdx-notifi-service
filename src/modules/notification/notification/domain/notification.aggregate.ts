@@ -79,9 +79,11 @@ export class NotificationAggregate {
       throw new Error('At least one notification channel is required');
     }
 
-    if (this._targetRoles.length === 0 && this._targetUsers.length === 0) {
-      throw new Error('At least one target (roles or users) is required');
-    }
+    // ⭐ Allow empty targets for broadcast notifications (all users from MongoDB)
+    // Validation will be handled in NotificationProcessingService.getTargetUsers()
+    // if (this._targetRoles.length === 0 && this._targetUsers.length === 0) {
+    //   throw new Error('At least one target (roles or users) is required');
+    // }
   }
 
   // Getters

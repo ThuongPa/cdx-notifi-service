@@ -19,13 +19,18 @@ import {
   UserCreatedEventHandler,
   UserDeletedEventHandler,
 } from './event-handlers/auth-event.handler';
+import {
+  LoaphuongContentPublishedEventHandler,
+  LoaphuongGenericEventHandler,
+} from './event-handlers/loaphuong-event.handler';
 import { UserModule } from '../../user/user.module';
 import { NovuSubscriberQueueService } from '../../../../infrastructure/external/novu/novu-subscriber-queue.service';
 import { NovuModule } from '../../../../infrastructure/external/novu/novu.module';
 import { RedisModule } from '../../../../infrastructure/cache/redis.module';
+import { NotificationModule } from '../../notification/notification.module';
 
 @Module({
-  imports: [RabbitMQModule, UserModule, NovuModule, RedisModule],
+  imports: [RabbitMQModule, UserModule, NovuModule, RedisModule, NotificationModule],
   providers: [
     NotificationEventConsumer,
     // Feedback event handlers
@@ -44,6 +49,9 @@ import { RedisModule } from '../../../../infrastructure/cache/redis.module';
     UserUpdatedEventHandler,
     UserCreatedEventHandler,
     UserDeletedEventHandler,
+    // Loa phường event handlers
+    LoaphuongContentPublishedEventHandler,
+    LoaphuongGenericEventHandler,
     // Novu subscriber queue service
     NovuSubscriberQueueService,
   ],

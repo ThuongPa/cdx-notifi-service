@@ -20,7 +20,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:integration": "jest --config ./test/jest-integration.json",
     "seed": "node scripts/seed/seed-runner.js",
-    "seed:templates": "node scripts/seed/seed-templates.js"
+    "seed:templates": "node scripts/seed/seed-templates.js",
+    "seed:user": "node scripts/seed/seed-user.js"
   },
   "dependencies": {
     "@fastify/compress": "^8.1.0",

@@ -412,4 +412,279 @@ export class NovuClient {
       },
     );
   }
+
+  /**
+   * Get in-app notifications (messages) for a subscriber
+   * @param subscriberId - The subscriber ID (usually userId)
+   * @param options - Query options (page, limit, seen)
+   */
+  async getInAppMessages(
+    subscriberId: string,
+    options: {
+      page?: number;
+      limit?: number;
+      seen?: boolean;
+    } = {},
+  ): Promise<{
+    data: any[];
+    totalCount: number;
+    page: number;
+    pageSize: number;
+    hasMore: boolean;
+  }> {
+    this.logger.log(`Getting in-app messages for subscriber: ${subscriberId}`);
+
+    return this.circuitBreakerService.execute(
+      'novu',
+      async () => {
+        return this.retryService.executeWithRetry(async () => {
+          const novuConfig = this.configService.get('novu');
+          const apiKey = novuConfig?.apiKey;
+          const apiUrl = novuConfig?.apiUrl;
+
+          if (!apiKey) {
+            this.logger.warn('NOVU_API_KEY not configured, using mock implementation');
+            return Promise.resolve({
+              data: [],
+              totalCount: 0,
+              page: options.page || 1,
+              pageSize: options.limit || 20,
+              hasMore: false,
+            });
+          }
+
+          try {
+            const page = options.page || 1;
+            const limit = options.limit || 20;
+            const seen = options.seen !== undefined ? options.seen : undefined;
+
+            // Build query parameters
+            const queryParams = new URLSearchParams({
+              page: page.toString(),
+              limit: limit.toString(),
+            });
+            if (seen !== undefined) {
+              queryParams.append('seen', seen.toString());
+            }
+
+            const response = await fetch(
+              `${apiUrl}/v1/subscribers/${subscriberId}/notifications/feeds?${queryParams.toString()}`,
+              {
+                method: 'GET',
+                headers: {
+                  Authorization: `ApiKey ${apiKey}`,
+                  'Content-Type': 'application/json',
+                },
+              },
+            );
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(`Novu API error: ${response.status} - ${errorText}`);
+            }
+
+            const result = await response.json();
+            this.logger.log(`Retrieved in-app messages for subscriber: ${subscriberId}`, {
+              count: result.data?.length || 0,
+            });
+
+            return {
+              data: result.data || [],
+              totalCount: result.totalCount || result.data?.length || 0,
+              page: result.page || page,
+              pageSize: result.pageSize || limit,
+              hasMore: result.hasMore || false,
+            };
+          } catch (error) {
+            this.logger.error(
+              `Failed to get in-app messages for subscriber ${subscriberId}: ${error.message}`,
+            );
+            throw error;
+          }
+        });
+      },
+      {
+        failureThreshold: 3,
+        timeout: 30000,
+        resetTimeout: 60000,
+      },
+    );
+  }
+
+  /**
+   * Mark in-app notification as read
+   * @param subscriberId - The subscriber ID
+   * @param messageId - The message ID to mark as read
+   */
+  async markInAppMessageAsRead(
+    subscriberId: string,
+    messageId: string,
+  ): Promise<{ success: boolean }> {
+    this.logger.log(
+      `Marking in-app message as read: ${messageId} for subscriber: ${subscriberId}`,
+    );
+
+    return this.circuitBreakerService.execute(
+      'novu',
+      async () => {
+        return this.retryService.executeWithRetry(async () => {
+          const novuConfig = this.configService.get('novu');
+          const apiKey = novuConfig?.apiKey;
+          const apiUrl = novuConfig?.apiUrl;
+
+          if (!apiKey) {
+            this.logger.warn('NOVU_API_KEY not configured, using mock implementation');
+            return Promise.resolve({ success: true });
+          }
+
+          try {
+            const response = await fetch(
+              `${apiUrl}/v1/subscribers/${subscriberId}/messages/${messageId}/read`,
+              {
+                method: 'PATCH',
+                headers: {
+                  Authorization: `ApiKey ${apiKey}`,
+                  'Content-Type': 'application/json',
+                },
+              },
+            );
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(`Novu API error: ${response.status} - ${errorText}`);
+            }
+
+            this.logger.log(`Message marked as read successfully: ${messageId}`);
+            return { success: true };
+          } catch (error) {
+            this.logger.error(
+              `Failed to mark message as read ${messageId}: ${error.message}`,
+            );
+            throw error;
+          }
+        });
+      },
+      {
+        failureThreshold: 3,
+        timeout: 30000,
+        resetTimeout: 60000,
+      },
+    );
+  }
+
+  /**
+   * Mark all in-app notifications as read for a subscriber
+   * @param subscriberId - The subscriber ID
+   */
+  async markAllInAppMessagesAsRead(subscriberId: string): Promise<{ success: boolean }> {
+    this.logger.log(`Marking all in-app messages as read for subscriber: ${subscriberId}`);
+
+    return this.circuitBreakerService.execute(
+      'novu',
+      async () => {
+        return this.retryService.executeWithRetry(async () => {
+          const novuConfig = this.configService.get('novu');
+          const apiKey = novuConfig?.apiKey;
+          const apiUrl = novuConfig?.apiUrl;
+
+          if (!apiKey) {
+            this.logger.warn('NOVU_API_KEY not configured, using mock implementation');
+            return Promise.resolve({ success: true });
+          }
+
+          try {
+            const response = await fetch(
+              `${apiUrl}/v1/subscribers/${subscriberId}/messages/read`,
+              {
+                method: 'PATCH',
+                headers: {
+                  Authorization: `ApiKey ${apiKey}`,
+                  'Content-Type': 'application/json',
+                },
+              },
+            );
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(`Novu API error: ${response.status} - ${errorText}`);
+            }
+
+            this.logger.log(`All messages marked as read successfully for subscriber: ${subscriberId}`);
+            return { success: true };
+          } catch (error) {
+            this.logger.error(
+              `Failed to mark all messages as read for subscriber ${subscriberId}: ${error.message}`,
+            );
+            throw error;
+          }
+        });
+      },
+      {
+        failureThreshold: 3,
+        timeout: 30000,
+        resetTimeout: 60000,
+      },
+    );
+  }
+
+  /**
+   * Get unread count for in-app notifications
+   * @param subscriberId - The subscriber ID
+   */
+  async getInAppUnreadCount(subscriberId: string): Promise<{ count: number }> {
+    this.logger.log(`Getting unread count for subscriber: ${subscriberId}`);
+
+    return this.circuitBreakerService.execute(
+      'novu',
+      async () => {
+        return this.retryService.executeWithRetry(async () => {
+          const novuConfig = this.configService.get('novu');
+          const apiKey = novuConfig?.apiKey;
+          const apiUrl = novuConfig?.apiUrl;
+
+          if (!apiKey) {
+            this.logger.warn('NOVU_API_KEY not configured, using mock implementation');
+            return Promise.resolve({ count: 0 });
+          }
+
+          try {
+            const response = await fetch(
+              `${apiUrl}/v1/subscribers/${subscriberId}/notifications/unseen`,
+              {
+                method: 'GET',
+                headers: {
+                  Authorization: `ApiKey ${apiKey}`,
+                  'Content-Type': 'application/json',
+                },
+              },
+            );
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(`Novu API error: ${response.status} - ${errorText}`);
+            }
+
+            const result = await response.json();
+            const count = result.data?.count || result.count || 0;
+
+            this.logger.log(`Retrieved unread count for subscriber: ${subscriberId}`, {
+              count,
+            });
+
+            return { count };
+          } catch (error) {
+            this.logger.error(
+              `Failed to get unread count for subscriber ${subscriberId}: ${error.message}`,
+            );
+            throw error;
+          }
+        });
+      },
+      {
+        failureThreshold: 3,
+        timeout: 30000,
+        resetTimeout: 60000,
+      },
+    );
+  }
 }

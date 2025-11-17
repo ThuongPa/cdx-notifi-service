@@ -36,8 +36,12 @@ export class RabbitMQConsumerService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Registered event handler for: ${eventType}`);
   }
 
-  async consume(queue: string, onMessage: (message: any) => Promise<any>): Promise<void> {
-    await this.rabbitMQService.consumeMessage(queue, onMessage);
+  async consume(
+    queue: string,
+    onMessage: (message: any) => Promise<any>,
+    options?: { consumerTag?: string; prefetch?: number },
+  ): Promise<void> {
+    await this.rabbitMQService.consumeMessage(queue, onMessage, options);
   }
 
   async validateEvent(event: any): Promise<boolean> {
@@ -54,13 +58,23 @@ export class RabbitMQConsumerService implements OnModuleInit, OnModuleDestroy {
       // Wait for RabbitMQ channel to be available with retry logic
       await this.waitForRabbitMQChannel();
 
-      // Start consuming from notification queue
+      // Generate unique consumer tag for this service instance
+      const consumerTag = `notification-consumer-${process.pid}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+
+      // Start consuming from notification queue with unique consumer tag and prefetch
       await this.rabbitMQService.consumeMessage(
         rabbitmqConfig.queues.notificationQueue.name,
         this.handleMessage.bind(this),
+        {
+          consumerTag, // ⭐ Unique consumer tag để tránh conflict
+          prefetch: 1, // ⭐ Set prefetch để đảm bảo fair distribution
+        },
       );
 
-      this.logger.log('RabbitMQ consumer started successfully');
+      this.logger.log('RabbitMQ consumer started successfully', {
+        consumerTag,
+        queue: rabbitmqConfig.queues.notificationQueue.name,
+      });
     } catch (error) {
       this.logger.error('Failed to start RabbitMQ consumer:', error);
       throw error;
