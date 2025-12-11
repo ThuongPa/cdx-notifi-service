@@ -66,6 +66,22 @@ export class NotificationHistoryQueryDto {
   endDate?: string;
 
   @ApiProperty({
+    description: 'Filter by source service (e.g., "loaphuong")',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  sourceService?: string;
+
+  @ApiProperty({
+    description: 'Filter by sender user ID (sentBy)',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  sentBy?: string;
+
+  @ApiProperty({
     description: 'Sort by field',
     required: false,
     default: 'createdAt',
@@ -92,6 +108,9 @@ export class NotificationHistoryItemDto {
   @ApiProperty({ description: 'Notification ID' })
   id: string;
 
+  @ApiProperty({ description: 'Correlation ID to track notification request', required: false })
+  correlationId?: string;
+
   @ApiProperty({ description: 'Notification title' })
   title: string;
 
@@ -109,6 +128,9 @@ export class NotificationHistoryItemDto {
 
   @ApiProperty({ description: 'Notification status' })
   status: string;
+
+  @ApiProperty({ description: 'User ID of the notification sender (BẮT BUỘC)' })
+  sentBy: string;
 
   @ApiProperty({ description: 'Additional notification data' })
   data: Record<string, any>;

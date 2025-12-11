@@ -6,6 +6,7 @@ import { NotificationCacheService } from '../../../infrastructure/cache/notifica
 import { RedisService } from '../../../infrastructure/cache/redis.service';
 import { GetNotificationHistoryHandler } from './application/queries/get-notification-history.handler';
 import { GetNotificationHandler } from './application/queries/get-notification.handler';
+import { GetNotificationByCorrelationIdHandler } from './application/queries/get-notification-by-correlation-id.handler';
 import { GetUnreadCountHandler } from './application/queries/get-unread-count.handler';
 import { GetUserStatisticsHandler } from './application/queries/get-user-statistics.handler';
 import { MarkAsReadHandler } from './application/commands/mark-as-read.handler';
@@ -33,7 +34,9 @@ import { User, UserSchema } from '../../../infrastructure/database/schemas/user.
 
 // Infrastructure
 import { NotificationRepositoryImpl } from './infrastructure/notification.repository.impl';
+import { NovuNotificationRepository } from './infrastructure/novu-notification.repository';
 import { NotificationProcessingService } from './application/services/notification-processing.service';
+import { NovuNotificationService } from './application/services/novu-notification.service';
 
 @Module({
   imports: [
@@ -63,10 +66,12 @@ import { NotificationProcessingService } from './application/services/notificati
       useClass: NotificationRepositoryImpl,
     },
     NotificationRepositoryImpl,
+    NovuNotificationRepository, // ⭐ Repository để query từ Novu API
 
     // Query Handlers
     GetNotificationHistoryHandler,
     GetNotificationHandler,
+    GetNotificationByCorrelationIdHandler, // ⭐ Handler for correlationId queries
     GetUnreadCountHandler,
     GetUserStatisticsHandler,
 
@@ -78,6 +83,7 @@ import { NotificationProcessingService } from './application/services/notificati
 
     // Application Services
     NotificationProcessingService, // ⭐ Service để process notification events
+    NovuNotificationService, // ⭐ Service để handle Novu webhooks
   ],
   exports: [
     RedisService,

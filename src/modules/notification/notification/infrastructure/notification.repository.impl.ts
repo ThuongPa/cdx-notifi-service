@@ -13,6 +13,7 @@ import {
   UserNotificationDocument,
 } from '../../../../infrastructure/database/schemas/user-notification.schema';
 import { NotificationRepository } from '../domain/notification.repository';
+import { NovuNotificationRepository } from './novu-notification.repository';
 
 @Injectable()
 export class NotificationRepositoryImpl implements NotificationRepository {
@@ -22,6 +23,7 @@ export class NotificationRepositoryImpl implements NotificationRepository {
     @InjectModel(Notification.name) private readonly notificationModel: Model<NotificationDocument>,
     @InjectModel(UserNotification.name)
     private readonly userNotificationModel: Model<UserNotificationDocument>,
+    private readonly novuNotificationRepository: NovuNotificationRepository,
   ) {}
 
   async save(notification: NotificationAggregate): Promise<void> {
@@ -175,6 +177,8 @@ export class NotificationRepositoryImpl implements NotificationRepository {
 
   /**
    * Save user notification record
+   * ⭐ ANALYTICS ONLY: Lưu vào database chỉ cho mục đích analytics/statistics
+   * User notification history vẫn lấy từ Novu API
    */
   async saveUserNotification(userNotification: {
     id: string;
@@ -195,21 +199,28 @@ export class NotificationRepositoryImpl implements NotificationRepository {
     deliveryId?: string;
   }): Promise<void> {
     try {
+      // ⭐ Lưu vào database cho analytics/statistics
+      // User notification history vẫn lấy từ Novu API
       await this.userNotificationModel.findOneAndUpdate(
         { id: userNotification.id },
         userNotification,
         { upsert: true, new: true },
       );
-
-      this.logger.log(`User notification saved: ${userNotification.id}`);
+      this.logger.debug(`User notification saved for analytics: ${userNotification.id}`);
     } catch (error) {
-      this.logger.error(`Failed to save user notification: ${error.message}`, error.stack);
-      throw error;
+      // Log error nhưng không throw để không block việc gửi notification
+      this.logger.error(
+        `Failed to save user notification for analytics: ${error.message}`,
+        error.stack,
+      );
     }
   }
 
   /**
    * Update user notification status
+   * ⭐ OPTION C: Update database thực sự (Database là source of truth cho analytics)
+   * - Tìm bằng deliveryId (từ webhook) hoặc id
+   * - Update status và các field liên quan
    */
   async updateUserNotificationStatus(
     id: string,
@@ -225,23 +236,99 @@ export class NotificationRepositoryImpl implements NotificationRepository {
     },
   ): Promise<void> {
     try {
-      const updateData: any = { status, updatedAt: new Date() };
+      // ⭐ Logic: Tìm bằng deliveryId trước (cho webhook), nếu không có thì tìm bằng id
+      // Build update data
+      const updateData: any = {
+        status,
+        updatedAt: new Date(),
+      };
 
       if (additionalData) {
-        Object.assign(updateData, additionalData);
+        if (additionalData.sentAt) updateData.sentAt = additionalData.sentAt;
+        if (additionalData.deliveredAt) updateData.deliveredAt = additionalData.deliveredAt;
+        if (additionalData.readAt) updateData.readAt = additionalData.readAt;
+        if (additionalData.errorMessage) updateData.errorMessage = additionalData.errorMessage;
+        if (additionalData.errorCode) updateData.errorCode = additionalData.errorCode;
+        if (additionalData.retryCount !== undefined)
+          updateData.retryCount = additionalData.retryCount;
       }
 
-      await this.userNotificationModel.findOneAndUpdate({ id }, updateData).exec();
+      // Thử tìm bằng deliveryId trước (cho webhook)
+      let query: any = { deliveryId: id };
+      let result = await this.userNotificationModel.updateOne(query, { $set: updateData });
 
-      this.logger.log(`User notification status updated: ${id} -> ${status}`);
+      // Nếu không tìm thấy bằng deliveryId, thử tìm bằng id
+      if (result.matchedCount === 0) {
+        query = { id: id };
+        result = await this.userNotificationModel.updateOne(query, { $set: updateData });
+      }
+
+      if (result.matchedCount === 0) {
+        this.logger.warn(
+          `No UserNotification found to update: deliveryId=${id} or id=${id} (status: ${status})`,
+        );
+      } else {
+        this.logger.debug(
+          `UserNotification status updated: ${JSON.stringify(query)} -> ${status}`,
+        );
+      }
+
+      // Nếu là mark as read, cũng update trong Novu
+      if (status === 'read') {
+        // Note: Cần userId context để mark as read trong Novu
+        // Handler sẽ cung cấp userId context
+        await this.novuNotificationRepository.updateUserNotificationStatus(id, status, additionalData);
+      }
     } catch (error) {
-      this.logger.error(`Failed to update user notification status: ${error.message}`, error.stack);
+      this.logger.error(
+        `Failed to update user notification status: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Get notifications by notificationId (for service-to-service calls)
+   */
+  async getNotificationsByNotificationId(notificationId: string): Promise<any[]> {
+    try {
+      const userNotifications = await this.userNotificationModel
+        .find({ notificationId })
+        .sort({ createdAt: -1 })
+        .exec();
+
+      return userNotifications.map((doc) => ({
+        id: doc.id,
+        userId: doc.userId,
+        notificationId: doc.notificationId,
+        title: doc.title,
+        body: doc.body,
+        type: doc.type,
+        channel: doc.channel,
+        priority: doc.priority,
+        status: doc.status,
+        data: doc.data || {},
+        sentAt: doc.sentAt,
+        deliveredAt: doc.deliveredAt,
+        readAt: doc.readAt,
+        createdAt: doc.createdAt,
+        updatedAt: doc.updatedAt,
+        deliveryId: doc.deliveryId,
+        errorMessage: doc.errorMessage,
+      }));
+    } catch (error) {
+      this.logger.error(
+        `Failed to get notifications by notificationId: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }
 
   /**
    * Get user notifications with optimized queries
+   * ✅ DELEGATE: Delegate to NovuNotificationRepository
    */
   async getUserNotifications(
     userId: string,
@@ -253,24 +340,70 @@ export class NotificationRepositoryImpl implements NotificationRepository {
       offset?: number;
       startDate?: Date;
       endDate?: Date;
+      sourceService?: string;
+      sentBy?: string;
+    } = {},
+  ): Promise<any[]> {
+    // ⭐ If sourceService or sentBy provided, query from MongoDB directly
+    if (options.sourceService || options.sentBy) {
+      return this.getUserNotificationsFromMongo(userId, options);
+    }
+
+    // Otherwise, use Novu repository (existing behavior)
+    return this.novuNotificationRepository.getUserNotifications(userId, options);
+  }
+
+  /**
+   * Query notifications from MongoDB with filters (for service-to-service calls)
+   */
+  private async getUserNotificationsFromMongo(
+    userId: string | undefined,
+    options: {
+      status?: string;
+      channel?: string;
+      type?: string;
+      limit?: number;
+      offset?: number;
+      startDate?: Date;
+      endDate?: Date;
+      sourceService?: string;
+      sentBy?: string;
     } = {},
   ): Promise<any[]> {
     try {
-      const query: any = { userId };
+      const query: any = {};
 
+      // If userId provided and not empty, filter by userId (for user calls)
+      if (userId && userId.trim() !== '') {
+        query.userId = userId;
+      }
+
+      // Filter by sourceService
+      if (options.sourceService) {
+        query['data.sourceService'] = options.sourceService;
+      }
+
+      // Filter by sentBy
+      if (options.sentBy) {
+        query['data.sentBy'] = options.sentBy;
+      }
+
+      // Filter by status
       if (options.status) {
         query.status = options.status;
       }
 
+      // Filter by channel
       if (options.channel) {
         query.channel = options.channel;
       }
 
+      // Filter by type
       if (options.type) {
         query.type = options.type;
       }
 
-      // Add date range filter
+      // Filter by date range
       if (options.startDate || options.endDate) {
         query.createdAt = {};
         if (options.startDate) {
@@ -281,42 +414,55 @@ export class NotificationRepositoryImpl implements NotificationRepository {
         }
       }
 
-      const limit = Math.min(100, options.limit || 50); // Max 100 per page
+      const limit = options.limit || 20;
       const offset = options.offset || 0;
 
-      const userNotifications = await this.userNotificationModel
+      const notifications = await this.userNotificationModel
         .find(query)
         .sort({ createdAt: -1 })
-        .limit(limit)
         .skip(offset)
-        .lean() // Use lean() for better performance
+        .limit(limit)
         .exec();
 
-      return userNotifications;
+      return notifications.map((doc) => ({
+        id: doc.id,
+        userId: doc.userId,
+        notificationId: doc.notificationId,
+        title: doc.title,
+        body: doc.body,
+        type: doc.type,
+        channel: doc.channel,
+        priority: doc.priority,
+        status: doc.status,
+        data: doc.data || {},
+        sentAt: doc.sentAt,
+        deliveredAt: doc.deliveredAt,
+        readAt: doc.readAt,
+        createdAt: doc.createdAt,
+        updatedAt: doc.updatedAt,
+        deliveryId: doc.deliveryId,
+      }));
     } catch (error) {
-      this.logger.error(`Failed to get user notifications: ${error.message}`, error.stack);
+      this.logger.error(
+        `Failed to get user notifications from MongoDB: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }
 
   /**
    * Get user notification count by status with optimized query
+   * ✅ DELEGATE: Delegate to NovuNotificationRepository
    */
   async getUserNotificationCount(userId: string, status?: string): Promise<number> {
-    try {
-      const query: any = { userId };
-
-      if (status) {
-        query.status = status;
-      }
-
-      return await this.userNotificationModel.countDocuments(query).lean().exec();
-    } catch (error) {
-      this.logger.error(`Failed to get user notification count: ${error.message}`, error.stack);
-      throw error;
-    }
+    return this.novuNotificationRepository.getUserNotificationCount(userId, status);
   }
 
+  /**
+   * Get user statistics
+   * ✅ DELEGATE: Delegate to NovuNotificationRepository
+   */
   async getUserStatistics(
     userId: string,
     options: { startDate?: Date; endDate?: Date } = {},
@@ -327,49 +473,6 @@ export class NotificationRepositoryImpl implements NotificationRepository {
     byType: Record<string, number>;
     byPriority: Record<string, number>;
   }> {
-    try {
-      const match: any = { userId };
-      if (options.startDate || options.endDate) {
-        match.createdAt = {};
-        if (options.startDate) match.createdAt.$gte = options.startDate;
-        if (options.endDate) match.createdAt.$lte = options.endDate;
-      }
-
-      const pipeline = [
-        { $match: match },
-        {
-          $facet: {
-            total: [{ $count: 'count' }],
-            unread: [{ $match: { status: 'delivered' } }, { $count: 'count' }],
-            read: [{ $match: { status: 'read' } }, { $count: 'count' }],
-            byType: [
-              { $group: { _id: '$type', count: { $sum: 1 } } },
-              { $project: { _id: 0, k: '$_id', v: '$count' } },
-            ],
-            byPriority: [
-              { $group: { _id: '$priority', count: { $sum: 1 } } },
-              { $project: { _id: 0, k: '$_id', v: '$count' } },
-            ],
-          },
-        },
-      ];
-
-      const result = await this.userNotificationModel.aggregate(pipeline).exec();
-      const first = result[0] || {};
-
-      const toRecord = (arr: Array<{ k: string; v: number }> = []) =>
-        Object.fromEntries(arr.map((i) => [i.k, i.v]));
-
-      return {
-        total: (first.total?.[0]?.count as number) || 0,
-        unread: (first.unread?.[0]?.count as number) || 0,
-        read: (first.read?.[0]?.count as number) || 0,
-        byType: toRecord(first.byType),
-        byPriority: toRecord(first.byPriority),
-      };
-    } catch (error) {
-      this.logger.error(`Failed to get user statistics: ${error.message}`, error.stack);
-      throw error;
-    }
+    return this.novuNotificationRepository.getUserStatistics(userId, options);
   }
 }

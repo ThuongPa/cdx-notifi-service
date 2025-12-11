@@ -254,6 +254,10 @@ export class NotificationProcessingService {
               contentId: notification.data?.contentId,
               contentType: notification.data?.contentType,
               redirectUrl: notification.data?.redirectUrl,
+              // ⭐ Include sentBy (BẮT BUỘC - User ID người gửi notification)
+              sentBy: notification.data?.sentBy,
+              // ⭐ Include correlationId (để track notification request)
+              correlationId: notification.data?.correlationId,
               // Legacy support
               taskId: notification.data?.taskId,
               announcementId: notification.data?.announcementId,

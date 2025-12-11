@@ -52,6 +52,10 @@ export class EventNormalizer {
       contentId: payload.contentId,
       contentType: payload.contentType || notification.type,
       redirectUrl: payload.redirectUrl,
+      // ⭐ Extract sentBy from payload (BẮT BUỘC)
+      sentBy: payload.sentBy,
+      // ⭐ Extract correlationId from event (optional)
+      correlationId: event.correlationId,
     };
 
     return {
@@ -108,9 +112,13 @@ export class EventNormalizer {
       throw new Error('payload.sourceService is required');
     }
 
-    if (!event.payload.contentId) {
-      throw new Error('payload.contentId is required');
+    // ⭐ Validate sentBy is required
+    if (!event.payload.sentBy) {
+      throw new Error('payload.sentBy is required - User ID of the notification sender');
     }
+
+    // contentId is optional - only required if you need redirect URL
+    // If not provided, redirectUrl will be undefined and notification will still work
 
     // Validate that old format fields are not used
     if (notification.targetUsers !== undefined || notification.targetRoles !== undefined) {

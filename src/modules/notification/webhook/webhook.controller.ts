@@ -12,6 +12,7 @@ import {
   HttpCode,
   UseGuards,
   ParseIntPipe,
+  Headers,
 } from '@nestjs/common';
 import {
   ApiOperation,
@@ -26,20 +27,20 @@ import { Type } from 'class-transformer';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../../common/guards/admin.guard';
-import { WebhookService } from './webhook.service';
+import { ServiceNameOrJwtGuard } from '../../../common/guards/service-name-or-jwt.guard';
+import { WebhookService } from './application/services/webhook.service';
 import { CreateWebhookDto } from './dto/create-webhook.dto';
 import { UpdateWebhookDto } from './dto/update-webhook.dto';
 import { WebhookDeliveryDto } from './dto/webhook-delivery.dto';
 
 @ApiTags('Webhook Management')
 @Controller('webhooks')
-@UseGuards(JwtAuthGuard)
-@ApiBearerAuth('bearerAuth')
 export class WebhookController {
   constructor(private readonly webhookService: WebhookService) {}
 
   @Post()
-  @UseGuards(AdminGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiBearerAuth('bearerAuth')
   @ApiOperation({ summary: 'Create a new webhook' })
   @ApiBody({
     description: 'Webhook creation data',
@@ -108,6 +109,8 @@ export class WebhookController {
   }
 
   @Get()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearerAuth')
   @ApiOperation({ summary: 'Get webhooks with filtering and pagination' })
   @ApiQuery({ name: 'name', required: false, description: 'Filter by webhook name' })
   @ApiQuery({ name: 'url', required: false, description: 'Filter by webhook URL' })
@@ -182,6 +185,8 @@ export class WebhookController {
   }
 
   @Get('statistics')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearerAuth')
   @ApiOperation({ summary: 'Get webhook statistics' })
   @ApiQuery({
     name: 'webhookId',
@@ -215,6 +220,8 @@ export class WebhookController {
   }
 
   @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearerAuth')
   @ApiOperation({ summary: 'Get webhook by ID' })
   @ApiParam({ name: 'id', description: 'Webhook ID' })
   @ApiResponse({
@@ -242,7 +249,8 @@ export class WebhookController {
   }
 
   @Put(':id')
-  @UseGuards(AdminGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiBearerAuth('bearerAuth')
   @ApiOperation({ summary: 'Update webhook' })
   @ApiParam({ name: 'id', description: 'Webhook ID' })
   @ApiBody({
@@ -306,7 +314,8 @@ export class WebhookController {
   }
 
   @Delete(':id')
-  @UseGuards(AdminGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiBearerAuth('bearerAuth')
   @ApiOperation({ summary: 'Delete webhook' })
   @ApiParam({ name: 'id', description: 'Webhook ID' })
   @ApiResponse({
@@ -564,6 +573,269 @@ export class WebhookController {
       res!.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
         success: false,
         error: 'Failed to get event deliveries',
+        message: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
+  @Get('register/check')
+  @UseGuards(ServiceNameOrJwtGuard)
+  @ApiOperation({ summary: 'Check if webhook URL is already registered' })
+  @ApiQuery({ name: 'url', required: true, description: 'Webhook URL (URL encoded)' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Webhook registration status retrieved successfully',
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid URL format',
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Unauthorized - Invalid service name or invalid JWT token',
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'Forbidden - Missing X-Service-Name header and missing/invalid JWT token',
+  })
+  async checkWebhookRegistration(@Query('url') url: string, @Res() res: Response): Promise<void> {
+    try {
+      if (!url) {
+        res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          error: 'URL parameter is required',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Decode URL if encoded
+      const decodedUrl = decodeURIComponent(url);
+
+      // Find webhook by URL
+      const webhooks = await this.webhookService.getWebhooks(
+        { url: decodedUrl },
+        { field: 'createdAt', order: 'desc' },
+        { page: 1, limit: 1 },
+      );
+
+      const webhook = webhooks?.data?.[0] || webhooks?.[0];
+
+      if (webhook) {
+        res.status(HttpStatus.OK).json({
+          registered: true,
+          webhook: {
+            id: webhook.id,
+            url: webhook.url,
+            events: webhook.eventTypes || webhook.events || [],
+            status: webhook.status || (webhook.isActive ? 'active' : 'inactive'),
+            createdAt: webhook.createdAt,
+          },
+        });
+      } else {
+        res.status(HttpStatus.OK).json({
+          registered: false,
+        });
+      }
+    } catch (error) {
+      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        success: false,
+        error: 'Failed to check webhook registration',
+        message: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
+  @Post('register')
+  @UseGuards(ServiceNameOrJwtGuard)
+  @ApiOperation({ summary: 'Register webhook for external services' })
+  @ApiBody({
+    description: 'Webhook registration data',
+    schema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Webhook callback URL' },
+        events: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Array of event types to subscribe',
+        },
+        secret: { type: 'string', description: 'Secret key for webhook verification' },
+        description: { type: 'string', description: 'Description of webhook' },
+      },
+      required: ['url', 'events'],
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Webhook registered successfully',
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Invalid request body or URL already registered',
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Unauthorized - Missing X-Service-Name header or invalid JWT token',
+  })
+  async registerWebhook(
+    @Body()
+    body: {
+      url: string;
+      events: string[];
+      secret?: string;
+      description?: string;
+    },
+    @Headers('x-service-name') serviceName?: string,
+    @Res() res?: Response,
+  ): Promise<void> {
+    try {
+      // Check if webhook already exists
+      const existingWebhooks = await this.webhookService.getWebhooks(
+        { url: body.url },
+        { field: 'createdAt', order: 'desc' },
+        { page: 1, limit: 1 },
+      );
+
+      const existingWebhook = existingWebhooks?.data?.[0] || existingWebhooks?.[0];
+      if (existingWebhook) {
+        res!.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          message: 'Webhook with this URL is already registered',
+          webhookId: existingWebhook.id,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Create webhook
+      const createDto: CreateWebhookDto = {
+        name: `Webhook-${serviceName || 'external'}-${Date.now()}`,
+        url: body.url,
+        events: body.events, // ⭐ Use 'events' instead of 'eventTypes'
+        secret: body.secret,
+        isActive: true,
+      };
+
+      const webhook = await this.webhookService.createWebhook(createDto, serviceName || 'external');
+
+      res!.status(HttpStatus.OK).json({
+        success: true,
+        webhookId: webhook.id,
+        message: 'Webhook registered successfully',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res!.status(HttpStatus.BAD_REQUEST).json({
+        success: false,
+        error: 'Failed to register webhook',
+        message: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
+  @Delete('register/:webhookId')
+  @UseGuards(ServiceNameOrJwtGuard)
+  @ApiOperation({ summary: 'Unregister webhook for external services' })
+  @ApiParam({ name: 'webhookId', description: 'Webhook ID' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Webhook unregistered successfully',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Webhook not found',
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Unauthorized - Missing X-Service-Name header or invalid JWT token',
+  })
+  async unregisterWebhook(
+    @Param('webhookId') webhookId: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    try {
+      await this.webhookService.deleteWebhook(webhookId);
+
+      res.status(HttpStatus.OK).json({
+        success: true,
+        message: 'Webhook unregistered successfully',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      const status = error.status || HttpStatus.INTERNAL_SERVER_ERROR;
+      res.status(status).json({
+        success: false,
+        error: 'Failed to unregister webhook',
+        message: error.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
+  @Delete('register')
+  @UseGuards(ServiceNameOrJwtGuard)
+  @ApiOperation({ summary: 'Unregister webhook by URL for external services' })
+  @ApiQuery({ name: 'url', required: true, description: 'Webhook URL (URL encoded)' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Webhook unregistered successfully',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Webhook not found',
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'Unauthorized - Missing X-Service-Name header or invalid JWT token',
+  })
+  async unregisterWebhookByUrl(@Query('url') url: string, @Res() res: Response): Promise<void> {
+    try {
+      if (!url) {
+        res.status(HttpStatus.BAD_REQUEST).json({
+          success: false,
+          error: 'URL parameter is required',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Decode URL if encoded
+      const decodedUrl = decodeURIComponent(url);
+
+      // Find webhook by URL
+      const webhooks = await this.webhookService.getWebhooks(
+        { url: decodedUrl },
+        { field: 'createdAt', order: 'desc' },
+        { page: 1, limit: 1 },
+      );
+
+      const webhook = webhooks?.data?.[0] || webhooks?.[0];
+
+      if (!webhook) {
+        res.status(HttpStatus.NOT_FOUND).json({
+          success: false,
+          error: 'Webhook not found',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      await this.webhookService.deleteWebhook(webhook.id);
+
+      res.status(HttpStatus.OK).json({
+        success: true,
+        message: 'Webhook unregistered successfully',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      const status = error.status || HttpStatus.INTERNAL_SERVER_ERROR;
+      res.status(status).json({
+        success: false,
+        error: 'Failed to unregister webhook',
         message: error.message,
         timestamp: new Date().toISOString(),
       });

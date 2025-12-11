@@ -860,6 +860,7 @@ export class PriorityQueueService implements OnModuleInit, OnModuleDestroy {
           });
         } catch (error) {
           this.logger.error(`Failed to trigger workflow for channel ${channel}:`, error);
+          // Track failed channel để lưu với status='failed' sau
           // Continue with other channels even if one fails
         }
       }
@@ -870,7 +871,15 @@ export class PriorityQueueService implements OnModuleInit, OnModuleDestroy {
         channel: 'unknown',
       };
 
-      // ⭐ Lưu UserNotification cho từng channel đã trigger workflow
+      // ⭐ OPTION C: Lưu UserNotification cho analytics (Database là source of truth)
+      // - Lưu khi Novu thành công (status='sent')
+      // - Lưu khi Novu fail (status='failed')
+      // - Webhook từ Novu sẽ update status (delivered/failed)
+
+      // Track failed channels để lưu với status='failed'
+      const failedChannels: Array<{ channel: string; error: Error }> = [];
+
+      // 1. Lưu UserNotification cho các channel đã trigger workflow thành công
       for (const workflowResult of workflowResults) {
         try {
           const normalizedChannel = workflowResult.channel;
@@ -887,7 +896,7 @@ export class PriorityQueueService implements OnModuleInit, OnModuleDestroy {
             type: message.type,
             channel: normalizedChannel,
             priority: message.priority,
-            status: 'sent',
+            status: 'sent', // ✅ Novu thành công
             data: {
               // Include redirectUrl và metadata trong data
               redirectUrl: redirectUrl,
@@ -896,6 +905,10 @@ export class PriorityQueueService implements OnModuleInit, OnModuleDestroy {
               contentType: contentType,
               taskId: taskId,
               announcementId: message.data?.announcementId,
+              // ⭐ Include sentBy (BẮT BUỘC - User ID người gửi notification)
+              sentBy: message.data?.sentBy,
+              // ⭐ Include correlationId (để track notification request)
+              correlationId: message.data?.correlationId,
               // Include all additional data (optimized format only)
               ...(message.data || {}),
             },
@@ -906,9 +919,10 @@ export class PriorityQueueService implements OnModuleInit, OnModuleDestroy {
             updatedAt: new Date(),
           };
 
+          // ⭐ OPTION C: Lưu vào database cho analytics (source of truth)
           await this.notificationRepository.saveUserNotification(userNotificationData);
 
-          this.logger.log(`UserNotification saved for ${normalizedChannel} channel`, {
+          this.logger.debug(`UserNotification saved for analytics (${normalizedChannel} channel)`, {
             userNotificationId,
             userId: message.userId,
             notificationId: message.id,
@@ -921,6 +935,64 @@ export class PriorityQueueService implements OnModuleInit, OnModuleDestroy {
             `Failed to save UserNotification for channel ${workflowResult.channel}: ${error.message}`,
             error.stack,
           );
+        }
+      }
+
+      // 2. Lưu UserNotification cho các channel đã fail (nếu có)
+      // Note: Failed channels được track trong catch block của vòng lặp trigger workflow
+      // Chúng ta cần track lại các channel đã fail
+      const successChannels = workflowResults.map((r) => r.channel);
+      for (const channel of channels) {
+        const normalizedChannel = this.normalizeChannelName(channel);
+        if (!successChannels.includes(normalizedChannel)) {
+          // Channel này đã fail, lưu với status='failed'
+          try {
+            const userNotificationId = createId();
+            const userNotificationData = {
+              id: userNotificationId,
+              _id: userNotificationId,
+              userId: message.userId,
+              notificationId: message.id,
+              title: message.title,
+              body: message.body,
+              type: message.type,
+              channel: normalizedChannel,
+              priority: message.priority,
+              status: 'failed', // ❌ Novu fail
+              data: {
+                redirectUrl: redirectUrl,
+                contentId: contentId,
+                sourceService: sourceService,
+                contentType: contentType,
+                taskId: taskId,
+                announcementId: message.data?.announcementId,
+                ...(message.data || {}),
+              },
+              errorMessage: `Failed to trigger workflow for channel ${normalizedChannel}`,
+              errorCode: 'WORKFLOW_TRIGGER_FAILED',
+              retryCount: 0,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            };
+
+            // ⭐ OPTION C: Lưu vào database cho analytics (source of truth)
+            await this.notificationRepository.saveUserNotification(userNotificationData);
+
+            this.logger.debug(
+              `UserNotification saved for analytics (${normalizedChannel} channel - FAILED)`,
+              {
+                userNotificationId,
+                userId: message.userId,
+                notificationId: message.id,
+                channel: normalizedChannel,
+              },
+            );
+          } catch (error) {
+            this.logger.error(
+              `Failed to save failed UserNotification for channel ${normalizedChannel}: ${error.message}`,
+              error.stack,
+            );
+          }
         }
       }
 

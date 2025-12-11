@@ -42,6 +42,16 @@ export interface WebhookFilters {
   offset?: number;
 }
 
+export interface WebhookSortOptions {
+  field?: string;
+  order?: 'asc' | 'desc';
+}
+
+export interface WebhookPaginationOptions {
+  page?: number;
+  limit?: number;
+}
+
 @Injectable()
 export class WebhookService {
   private readonly logger = new Logger(WebhookService.name);
@@ -83,11 +93,88 @@ export class WebhookService {
     return webhook;
   }
 
-  async getWebhooks(filters: WebhookFilters = {}): Promise<Webhook[]> {
-    return this.webhookRepository.find(filters);
+  async getWebhooks(
+    filters: WebhookFilters = {},
+    sort?: WebhookSortOptions,
+    pagination?: WebhookPaginationOptions,
+  ): Promise<any> {
+    // Get all webhooks matching filters
+    let webhooks = await this.webhookRepository.find(filters);
+
+    // Apply sorting
+    if (sort?.field) {
+      const field = sort.field;
+      const order = sort.order || 'desc';
+      webhooks.sort((a, b) => {
+        const aValue = (a as any)[field];
+        const bValue = (b as any)[field];
+
+        if (aValue === undefined || aValue === null) return 1;
+        if (bValue === undefined || bValue === null) return -1;
+
+        if (aValue instanceof Date && bValue instanceof Date) {
+          return order === 'asc'
+            ? aValue.getTime() - bValue.getTime()
+            : bValue.getTime() - aValue.getTime();
+        }
+
+        if (typeof aValue === 'string' && typeof bValue === 'string') {
+          return order === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+        }
+
+        if (typeof aValue === 'number' && typeof bValue === 'number') {
+          return order === 'asc' ? aValue - bValue : bValue - aValue;
+        }
+
+        return 0;
+      });
+    }
+
+    // Apply pagination
+    if (pagination) {
+      const page = pagination.page || 1;
+      const limit = pagination.limit || 10;
+      const offset = (page - 1) * limit;
+      const total = webhooks.length;
+      const totalPages = Math.ceil(total / limit);
+      const paginatedWebhooks = webhooks.slice(offset, offset + limit);
+
+      return {
+        data: paginatedWebhooks.map((w) => this.webhookToPlainObject(w)),
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1,
+        },
+      };
+    }
+
+    // Return as array if no pagination
+    return webhooks.map((w) => this.webhookToPlainObject(w));
   }
 
-  async updateWebhook(id: string, updateDto: UpdateWebhookDto): Promise<Webhook> {
+  private webhookToPlainObject(webhook: Webhook): any {
+    return {
+      id: webhook.id,
+      name: webhook.name,
+      url: webhook.url,
+      events: webhook.events,
+      headers: webhook.headers,
+      secret: webhook.secret,
+      isActive: webhook.isActive,
+      timeout: webhook.timeout,
+      retryCount: webhook.retryCount,
+      retryDelay: webhook.retryDelay,
+      createdBy: webhook.createdBy,
+      createdAt: webhook.createdAt,
+      updatedAt: webhook.updatedAt,
+    };
+  }
+
+  async updateWebhook(id: string, updateDto: UpdateWebhookDto, updatedBy?: string): Promise<Webhook> {
     this.logger.log(`Updating webhook ${id}`);
 
     const webhook = await this.getWebhookById(id);
@@ -171,12 +258,14 @@ export class WebhookService {
     return this.webhookRepository.update(id, webhook);
   }
 
-  async getWebhookStatistics(): Promise<{
+  async getWebhookStatistics(webhookId?: string): Promise<{
     total: number;
     active: number;
     inactive: number;
   }> {
-    const webhooks = await this.webhookRepository.find({});
+    const webhooks = webhookId
+      ? [await this.getWebhookById(webhookId)]
+      : await this.webhookRepository.find({});
 
     return {
       total: webhooks.length,
@@ -257,6 +346,42 @@ export class WebhookService {
     }
   }
 
+  // Delivery-related methods (stubs for now)
+  async triggerWebhook(deliveryDto: any): Promise<any> {
+    this.logger.warn('triggerWebhook is not implemented yet');
+    throw new BadRequestException('Webhook triggering is not implemented yet');
+  }
+
+  async getDeliveries(filters?: any, sort?: any, pagination?: any): Promise<any> {
+    this.logger.warn('getDeliveries is not implemented yet');
+    return { data: [], pagination: { page: 1, limit: 10, total: 0, totalPages: 0 } };
+  }
+
+  async getDeliveryStatistics(webhookId?: string): Promise<any> {
+    this.logger.warn('getDeliveryStatistics is not implemented yet');
+    return {
+      total: 0,
+      success: 0,
+      failed: 0,
+      pending: 0,
+    };
+  }
+
+  async getDeliveryById(id: string): Promise<any> {
+    this.logger.warn('getDeliveryById is not implemented yet');
+    throw new NotFoundException(`Delivery with ID ${id} not found`);
+  }
+
+  async getDeliveriesByWebhook(webhookId: string): Promise<any[]> {
+    this.logger.warn('getDeliveriesByWebhook is not implemented yet');
+    return [];
+  }
+
+  async getDeliveriesByEventId(eventId: string): Promise<any[]> {
+    this.logger.warn('getDeliveriesByEventId is not implemented yet');
+    return [];
+  }
+
   private validateEvents(events: string[]): void {
     if (!events || events.length === 0) {
       throw new BadRequestException('At least one event type must be specified');
@@ -269,6 +394,7 @@ export class WebhookService {
       'notification.failed',
       'notification.read',
       'notification.clicked',
+      'notification.status-update', // ⭐ Event cho status updates từ notification service
       'user.created',
       'user.updated',
       'user.deleted',
