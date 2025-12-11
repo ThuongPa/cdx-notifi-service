@@ -3,6 +3,7 @@ import { GetUnreadCountQuery, UnreadCountResult } from './get-unread-count.query
 import { Injectable, Get, Query, Res, Logger, Inject } from '@nestjs/common';
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { NotificationRepositoryImpl } from '../../infrastructure/notification.repository.impl';
+import { NovuClient } from '../../../../../infrastructure/external/novu/novu.client';
 
 @Injectable()
 @QueryHandler(GetUnreadCountQuery)
@@ -12,6 +13,7 @@ export class GetUnreadCountHandler implements IQueryHandler<GetUnreadCountQuery>
   constructor(
     @Inject('NotificationRepository')
     private readonly notificationRepository: NotificationRepositoryImpl,
+    private readonly novuClient: NovuClient,
     private readonly cacheService: NotificationCacheService,
   ) {}
 
@@ -29,11 +31,9 @@ export class GetUnreadCountHandler implements IQueryHandler<GetUnreadCountQuery>
         };
       }
 
-      // Get unread count from repository
-      const count = await this.notificationRepository.getUserNotificationCount(
-        query.userId,
-        'delivered', // Assuming 'delivered' status means unread
-      );
+      // ✅ THAY ĐỔI: Get unread count từ Novu API
+      const novuResult = await this.novuClient.getUnreadCount(query.userId);
+      const count = novuResult.count || 0;
 
       const result: UnreadCountResult = {
         count,

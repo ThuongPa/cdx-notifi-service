@@ -65,21 +65,8 @@ export class NovuNotificationService {
         },
       );
 
-      // Create user notification records
+      // ✅ REMOVED: Không lưu user notification vào database nữa, Novu tự quản lý
       for (const userId of userIds) {
-        const userNotification = NotificationMapper.toUserNotificationDocument(
-          notification,
-          userId,
-          channel.getValue(),
-          {
-            status: 'sent',
-            sentAt: new Date(),
-            deliveryId: workflowResult.deliveryId,
-          },
-        );
-
-        await this.notificationRepository.saveUserNotification(userNotification as any);
-
         results.push({
           success: true,
           deliveryId: workflowResult.deliveryId,
@@ -94,22 +81,8 @@ export class NovuNotificationService {
     } catch (error) {
       this.logger.error(`Failed to send ${channel.getValue()} notifications: ${error.message}`);
 
-      // Create failed user notification records
+      // ✅ REMOVED: Không lưu failed user notification vào database nữa
       for (const userId of userIds) {
-        const userNotification = NotificationMapper.toUserNotificationDocument(
-          notification,
-          userId,
-          channel.getValue(),
-          {
-            status: 'failed',
-            errorMessage: error.message,
-            errorCode: error.code || 'UNKNOWN_ERROR',
-            retryCount: 0,
-          },
-        );
-
-        await this.notificationRepository.saveUserNotification(userNotification as any);
-
         results.push({
           success: false,
           errorMessage: error.message,
@@ -173,28 +146,29 @@ export class NovuNotificationService {
     try {
       this.logger.log(`Updating delivery status: ${deliveryId} -> ${status}`);
 
-      const updateData: any = {
-        status,
+      const additionalData: any = {
         updatedAt: new Date(),
       };
 
       if (status === 'delivered') {
-        updateData.deliveredAt = new Date();
+        additionalData.deliveredAt = new Date();
       } else if (status === 'failed' && errorMessage) {
-        updateData.errorMessage = errorMessage;
+        additionalData.errorMessage = errorMessage;
+        additionalData.errorCode = 'NOVU_DELIVERY_FAILED';
       }
 
-      // Update user notification status
+      // Update user notification status in database (for analytics)
+      // Note: deliveryId is used to find the record
       await this.notificationRepository.updateUserNotificationStatus(
-        deliveryId,
+        deliveryId, // This will be used as deliveryId in the query
         status,
-        updateData,
+        additionalData,
       );
 
-      this.logger.log(`Delivery status updated: ${deliveryId}`);
+      this.logger.log(`Delivery status updated: ${deliveryId} -> ${status}`);
     } catch (error) {
       this.logger.error(`Failed to update delivery status: ${error.message}`, error.stack);
-      throw error;
+      // Don't throw - webhook processing failure shouldn't block Novu
     }
   }
 

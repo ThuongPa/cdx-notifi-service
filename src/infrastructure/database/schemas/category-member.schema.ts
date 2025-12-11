@@ -19,6 +19,13 @@ export class CategoryMember {
 
   @Prop({ default: true })
   isActive: boolean;
+
+  // ⭐ THÊM: Sync status với Novu
+  @Prop({ default: false })
+  novuSynced?: boolean;
+
+  @Prop({ type: Date })
+  novuSyncedAt?: Date;
 }
 
 export const CategoryMemberSchema = SchemaFactory.createForClass(CategoryMember);
@@ -33,3 +40,7 @@ CategoryMemberSchema.index({ joinedAt: 1 });
 CategoryMemberSchema.index({ categoryId: 1, userId: 1 }, { unique: true });
 CategoryMemberSchema.index({ userId: 1, isActive: 1 });
 CategoryMemberSchema.index({ categoryId: 1, isActive: 1 });
+
+// ⭐ THÊM: Indexes cho sync status
+CategoryMemberSchema.index({ novuSynced: 1 });
+CategoryMemberSchema.index({ categoryId: 1, novuSynced: 1 });

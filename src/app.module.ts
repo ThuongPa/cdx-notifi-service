@@ -27,6 +27,7 @@ import { QueueMonitoringModule } from './modules/notification/queue-monitoring/q
 import { BatchProcessingModule } from './modules/notification/batch-processing/batch-processing.module';
 import { PriorityQueueModule } from './modules/notification/priority-queue/priority-queue.module';
 import { PerformanceModule } from './infrastructure/performance/performance.module';
+import { DatabaseModule } from './infrastructure/database/mongoose.module';
 import { CategoryModule } from './modules/notification/category/category.module';
 import { DeviceTokenModule } from './modules/notification/device-token/device-token.module';
 import { SchedulingModule } from './modules/notification/scheduling/scheduling.module';
@@ -76,6 +77,7 @@ import { InAppModule } from './modules/notification/in-app/in-app.module';
     TerminusModule,
 
     // Infrastructure modules
+    DatabaseModule, // ⭐ Database initialization (collections & indexes)
     LoggingModule,
     MonitoringModule,
     SecurityModule,

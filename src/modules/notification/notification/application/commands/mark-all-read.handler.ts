@@ -3,6 +3,7 @@ import { MarkAllAsReadCommand, MarkAllAsReadResult } from './mark-all-read.comma
 import { Injectable, Get, Res, Logger, Inject } from '@nestjs/common';
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 import { NotificationRepositoryImpl } from '../../infrastructure/notification.repository.impl';
+import { NovuClient } from '../../../../../infrastructure/external/novu/novu.client';
 
 @Injectable()
 @CommandHandler(MarkAllAsReadCommand)
@@ -12,6 +13,7 @@ export class MarkAllAsReadHandler implements ICommandHandler<MarkAllAsReadComman
   constructor(
     @Inject('NotificationRepository')
     private readonly notificationRepository: NotificationRepositoryImpl,
+    private readonly novuClient: NovuClient,
     private readonly cacheService: NotificationCacheService,
   ) {}
 
@@ -19,33 +21,10 @@ export class MarkAllAsReadHandler implements ICommandHandler<MarkAllAsReadComman
     try {
       this.logger.log(`Marking all notifications as read for user: ${command.userId}`);
 
-      // Get all unread notifications for the user
-      const unreadNotifications = await this.notificationRepository.getUserNotifications(
-        command.userId,
-        { status: 'delivered', limit: 1000 }, // Assuming 'delivered' status means unread
-      );
-
-      if (unreadNotifications.length === 0) {
-        this.logger.log(`No unread notifications found for user: ${command.userId}`);
-        return {
-          success: true,
-          updatedCount: 0,
-          readAt: new Date(),
-        };
-      }
-
-      // Mark all unread notifications as read
+      // ✅ THAY ĐỔI: Mark all as read trong Novu API
       const readAt = new Date();
-      let updatedCount = 0;
-
-      for (const notification of unreadNotifications) {
-        if (!notification.readAt) {
-          await this.notificationRepository.updateUserNotificationStatus(notification.id, 'read', {
-            readAt,
-          });
-          updatedCount++;
-        }
-      }
+      const novuResult = await this.novuClient.markAllNotificationsAsRead(command.userId);
+      const updatedCount = novuResult.updatedCount || 0;
 
       const result: MarkAllAsReadResult = {
         success: true,

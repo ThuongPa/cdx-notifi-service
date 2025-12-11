@@ -35,13 +35,17 @@ export class Category {
   @Prop({ required: true })
   createdBy: string;
 
-  // Additional properties for targeting
-  @Prop({ type: [Object], default: [] })
-  members: Array<{ userId: string; joinedAt: Date; isActive: boolean }>;
+  // ⭐ THÊM: Novu Topics integration
+  @Prop({ unique: true, sparse: true })
+  topicKey?: string; // Format: "category_{categoryId}"
 
-  @Prop({ default: 0 })
-  memberCount: number;
+  @Prop({ default: false })
+  novuSynced?: boolean;
 
+  @Prop({ type: Date })
+  novuSyncedAt?: Date;
+
+  // ✅ GIỮ NGUYÊN: Analytics
   @Prop({ default: 0 })
   engagementScore: number;
 
@@ -50,6 +54,13 @@ export class Category {
 
   @Prop()
   lastActivityAt?: Date;
+
+  // ❌ XÓA: members array (dùng CategoryMember collection thay thế)
+  // ❌ XÓA: memberCount (tính động từ CategoryMember)
 }
 
 export const CategorySchema = SchemaFactory.createForClass(Category);
+
+// ⭐ THÊM: Indexes cho Novu sync
+// Note: topicKey đã có unique index từ @Prop({ unique: true, sparse: true }) nên không cần thêm index ở đây
+CategorySchema.index({ novuSynced: 1 });

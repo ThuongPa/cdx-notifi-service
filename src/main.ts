@@ -15,7 +15,7 @@ import { Get, Logger, ValidationPipe } from '@nestjs/common';
 import { Document, Types } from 'mongoose';
 import { Type } from 'class-transformer';
 import * as helmet from 'helmet';
-import * as compression from 'compression';
+import compression from 'compression';
 import { StructuredLoggerService } from './common/services/structured-logger.service';
 
 async function bootstrap() {

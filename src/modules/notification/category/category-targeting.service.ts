@@ -1,4 +1,5 @@
-import { CategoryService } from './category.service';
+import { CategoryService } from './application/services/category.service';
+import { CategoryMemberService } from './category-member.service';
 import { Injectable, Get, Res, Logger } from '@nestjs/common';
 
 export interface CategoryTargetingOptions {
@@ -24,6 +25,7 @@ export class CategoryTargetingService {
 
   constructor(
     private readonly categoryService: CategoryService,
+    private readonly categoryMemberService: CategoryMemberService,
     // private readonly structuredLogger: StructuredLoggerService,
   ) {}
 
@@ -61,17 +63,24 @@ export class CategoryTargetingService {
           continue;
         }
 
-        // Get users from this category
-        const categoryUsers = category.members
-          .filter((member) => !excludeUsers.includes(member.userId))
-          .map((member) => member.userId);
+        // ✅ THAY ĐỔI: Lấy từ CategoryMember collection thay vì members array
+        const categoryUsers = await this.categoryMemberService.getMembers(categoryId, {
+          includeInactive: !includeOnlyActive,
+          excludeUsers,
+        });
 
         categoryUsers.forEach((userId) => allUserIds.add(userId));
 
+        // Get member count
+        const memberCount = await this.categoryMemberService.getMemberCount(
+          categoryId,
+          includeOnlyActive,
+        );
+
         categoryDetails.push({
-          categoryId: (category._id as any).toString(),
+          categoryId: category.id,
           categoryName: category.name,
-          memberCount: categoryUsers.length,
+          memberCount,
         });
 
         // Include subcategories if requested
@@ -91,7 +100,7 @@ export class CategoryTargetingService {
       //   categoryIds,
       //   includeSubcategories,
       //   totalTargetedUsers: userIds.length,
-      //   excludedUsers: excludeUsers.length,
+      //   excludedUsers: excludeUsers?.length || 0,
       // });
 
       this.logger.log(
@@ -116,9 +125,10 @@ export class CategoryTargetingService {
         throw new Error(`Category with ID '${categoryId}' not found`);
       }
 
-      return category.members
-        .filter((member) => !excludeUsers.includes(member.userId))
-        .map((member) => member.userId);
+      // ✅ THAY ĐỔI: Lấy từ CategoryMember collection
+      return this.categoryMemberService.getMembers(categoryId, {
+        excludeUsers,
+      });
     } catch (error) {
       this.logger.error(`Failed to get users by category: ${error.message}`, error.stack);
       throw error;
@@ -162,20 +172,14 @@ export class CategoryTargetingService {
         throw new Error(`Category with ID '${categoryId}' not found`);
       }
 
-      // Calculate active members (members who have been active recently)
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-      const activeMembers = category.members.filter((_) => {
-        // This is a simplified calculation - in a real implementation,
-        // you would track member activity timestamps
-        return true; // For now, consider all members as active
-      }).length;
+      // ✅ THAY ĐỔI: Tính memberCount từ CategoryMember collection
+      const memberCount = await this.categoryMemberService.getMemberCount(categoryId, true);
+      const activeMembers = memberCount; // Simplified: all active members
 
       return {
-        categoryId: (category._id as any).toString(),
+        categoryId: category.id,
         categoryName: category.name,
-        memberCount: category.memberCount,
+        memberCount,
         engagementScore: category.engagementScore,
         notificationCount: category.notificationCount,
         lastActivityAt: category.lastActivityAt || new Date(),
@@ -255,13 +259,21 @@ export class CategoryTargetingService {
     try {
       const topCategories = await this.categoryService.getTopCategories(limit);
 
-      return topCategories.map((category) => ({
-        categoryId: (category._id as any).toString(),
-        categoryName: category.name,
-        engagementScore: category.engagementScore,
-        memberCount: category.memberCount,
-        notificationCount: category.notificationCount,
-      }));
+      // ✅ THAY ĐỔI: Tính memberCount từ CategoryMember collection
+      const categoriesWithCounts = await Promise.all(
+        topCategories.map(async (category) => {
+          const memberCount = await this.categoryMemberService.getMemberCount(category.id, true);
+          return {
+            categoryId: category.id,
+            categoryName: category.name,
+            engagementScore: category.engagementScore,
+            memberCount,
+            notificationCount: category.notificationCount,
+          };
+        }),
+      );
+
+      return categoriesWithCounts;
     } catch (error) {
       this.logger.error(`Failed to get top engaged categories: ${error.message}`, error.stack);
       throw error;
@@ -282,15 +294,17 @@ export class CategoryTargetingService {
       const allUserIds = new Set<string>();
 
       for (const subcategory of subcategories.categories) {
-        const subcategoryUsers = subcategory.members
-          .filter((member) => !excludeUsers.includes(member.userId))
-          .map((member) => member.userId);
+        // ✅ THAY ĐỔI: Lấy từ CategoryMember collection
+        const subcategoryUsers = await this.categoryMemberService.getMembers(subcategory.id, {
+          includeInactive: !includeOnlyActive,
+          excludeUsers,
+        });
 
         subcategoryUsers.forEach((userId) => allUserIds.add(userId));
 
         // Recursively get users from sub-subcategories
         const subSubcategoryUsers = await this.getSubcategoryUsers(
-          (subcategory._id as any).toString(),
+          subcategory.id,
           excludeUsers,
           includeOnlyActive,
         );

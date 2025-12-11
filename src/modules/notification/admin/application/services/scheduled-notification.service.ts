@@ -55,7 +55,8 @@ export class ScheduledNotificationService {
       const targetUsers = await this.getTargetUsers(announcement);
 
       // Create user notifications
-      await this.createUserNotifications(announcement, targetUsers);
+      // ✅ REMOVED: Không tạo user notifications vào database nữa, Novu tự quản lý
+      this.logger.log(`User notifications not created (managed by Novu) for scheduled announcement: ${announcement.id}`);
 
       // Update announcement status
       await this.announcementModel.findByIdAndUpdate(announcement._id, {

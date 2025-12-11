@@ -268,4 +268,35 @@ export class NovuWorkflowService {
       throw error;
     }
   }
+
+  /**
+   * Trigger workflow with topic (sends to all subscribers in topic)
+   * @param params - Workflow trigger parameters with topic
+   */
+  async triggerWorkflowWithTopic(params: {
+    workflowId: string;
+    topicKey: string;
+    payload: Record<string, any>;
+  }): Promise<{ deliveryId: string }> {
+    try {
+      this.logger.log(
+        `Triggering workflow: ${params.workflowId} for topic: ${params.topicKey}`,
+      );
+
+      // Use circuit breaker for Novu API calls
+      const result = await this.circuitBreakerService.executeWithNovuConfig(async () => {
+        return this.novuClient.triggerWorkflowWithTopic({
+          workflowId: params.workflowId,
+          topicKey: params.topicKey,
+          payload: params.payload,
+        });
+      });
+
+      this.logger.log(`Workflow triggered successfully with topic: ${result.deliveryId}`);
+      return result;
+    } catch (error) {
+      this.logger.error(`Failed to trigger workflow with topic:`, error);
+      throw error;
+    }
+  }
 }

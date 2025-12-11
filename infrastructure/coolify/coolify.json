@@ -5,7 +5,7 @@
   "type": "application",
   "build": {
     "type": "dockerfile",
-    "dockerfile": "infrastructure/docker/Dockerfile",
+    "dockerfile": "Dockerfile",
     "context": ".",
     "args": {
       "NODE_ENV": "production"
@@ -25,7 +25,7 @@
       }
     },
     "healthCheck": {
-      "path": "/health",
+      "path": "/api/v1/health",
       "port": 3000,
       "initialDelaySeconds": 30,
       "periodSeconds": 10,
@@ -33,7 +33,7 @@
       "failureThreshold": 3
     },
     "livenessProbe": {
-      "path": "/health",
+      "path": "/api/v1/health",
       "port": 3000,
       "initialDelaySeconds": 30,
       "periodSeconds": 10,
@@ -41,7 +41,7 @@
       "failureThreshold": 3
     },
     "readinessProbe": {
-      "path": "/health",
+      "path": "/api/v1/health",
       "port": 3000,
       "initialDelaySeconds": 5,
       "periodSeconds": 5,
@@ -162,7 +162,7 @@
     "hooks": [
       {
         "name": "health-check",
-        "command": "curl -f http://localhost:3000/health",
+        "command": "curl -f http://localhost:3000/api/v1/health",
         "timeout": 30
       },
       {

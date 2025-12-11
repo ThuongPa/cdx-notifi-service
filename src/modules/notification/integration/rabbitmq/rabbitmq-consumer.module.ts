@@ -21,6 +21,7 @@ import {
 } from './event-handlers/auth-event.handler';
 import {
   LoaphuongContentPublishedEventHandler,
+  LoaphuongSendNotificationEventHandler,
   LoaphuongGenericEventHandler,
 } from './event-handlers/loaphuong-event.handler';
 import { UserModule } from '../../user/user.module';
@@ -51,6 +52,7 @@ import { NotificationModule } from '../../notification/notification.module';
     UserDeletedEventHandler,
     // Loa phường event handlers
     LoaphuongContentPublishedEventHandler,
+    LoaphuongSendNotificationEventHandler,
     LoaphuongGenericEventHandler,
     // Novu subscriber queue service
     NovuSubscriberQueueService,

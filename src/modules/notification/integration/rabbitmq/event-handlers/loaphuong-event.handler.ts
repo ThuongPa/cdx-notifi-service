@@ -62,6 +62,67 @@ export class LoaphuongContentPublishedEventHandler extends BaseEventHandler {
 }
 
 /**
+ * Handler for loa phường send notification events
+ * Handles event: loaphuong.sendNotification
+ * This handler supports notifications without contentId (no redirect URL required)
+ */
+@Injectable()
+export class LoaphuongSendNotificationEventHandler extends BaseEventHandler {
+  protected readonly logger = new Logger(LoaphuongSendNotificationEventHandler.name);
+
+  constructor(private readonly notificationProcessingService: NotificationProcessingService) {
+    super();
+  }
+
+  getEventType(): string {
+    return 'loaphuong.sendNotification';
+  }
+
+  async handle(event: BaseEventDto): Promise<void> {
+    this.logEventProcessing(event, 'loa phường send notification');
+
+    try {
+      // Validate event structure (optimized format only)
+      // Note: contentId is optional for this event type
+      EventNormalizer.validateEvent(event);
+
+      // Normalize event to standardized structure (optimized format only)
+      const normalized = EventNormalizer.normalizeEvent(event);
+
+      const notificationParams = {
+        title: normalized.title,
+        body: normalized.body,
+        type: normalized.type,
+        priority: normalized.priority,
+        channels: normalized.channels,
+        targetUsers: normalized.targetUsers,
+        targetRoles: normalized.targetRoles,
+        data: normalized.data,
+      };
+
+      this.logger.log(`Processing notification from loa phường service (sendNotification)`, {
+        eventId: event.eventId,
+        title: normalized.title,
+        channels: normalized.channels,
+        contentId: normalized.data.contentId || 'N/A (no redirect URL)',
+        hasRedirectUrl: !!normalized.data.redirectUrl,
+      });
+
+      // Process notification through NotificationProcessingService
+      await this.notificationProcessingService.processNotificationEvent(notificationParams);
+
+      this.logger.log(`✅ Loa phường send notification processed successfully`, {
+        eventId: event.eventId,
+        contentId: normalized.data.contentId || 'N/A',
+      });
+    } catch (error) {
+      this.logger.error(`Failed to handle loa phường send notification event:`, error);
+      throw error;
+    }
+  }
+}
+
+/**
  * Generic handler for all loaphuong events
  * Can be extended for other event types like AnnouncementUpdated, AnnouncementDeleted, etc.
  */

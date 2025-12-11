@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import {
   NotificationType,
   NotificationChannel,
@@ -43,6 +44,18 @@ describe('NovuNotificationService', () => {
       getUserNotificationCount: jest.fn(),
     };
 
+    const mockConfigService = {
+      get: jest.fn((key: string) => {
+        const config: Record<string, string> = {
+          NOVU_WORKFLOW_PUSH: 'test-push',
+          NOVU_WORKFLOW_EMAIL: 'test-email',
+          NOVU_WORKFLOW_SMS: 'test-sms',
+          NOVU_WORKFLOW_IN_APP: 'test-in-app',
+        };
+        return config[key];
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         NovuNotificationService,
@@ -57,6 +70,10 @@ describe('NovuNotificationService', () => {
         {
           provide: NotificationRepositoryImpl,
           useValue: mockNotificationRepository,
+        },
+        {
+          provide: ConfigService,
+          useValue: mockConfigService,
         },
       ],
     }).compile();

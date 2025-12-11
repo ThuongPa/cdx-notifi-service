@@ -90,89 +90,12 @@ export class CategoryRepository {
     return !!result;
   }
 
-  async addMember(
-    categoryId: string,
-    member: { userId: string; role?: string; metadata?: any },
-  ): Promise<CategoryDocument | null> {
-    return this.categoryModel
-      .findByIdAndUpdate(
-        categoryId,
-        {
-          $push: {
-            members: {
-              userId: member.userId,
-              joinedAt: new Date(),
-              role: member.role || 'member',
-              metadata: member.metadata || {},
-            },
-          },
-          $inc: { memberCount: 1 },
-          lastActivityAt: new Date(),
-        },
-        { new: true },
-      )
-      .exec();
-  }
-
-  async removeMember(categoryId: string, userId: string): Promise<CategoryDocument | null> {
-    return this.categoryModel
-      .findByIdAndUpdate(
-        categoryId,
-        {
-          $pull: { members: { userId } },
-          $inc: { memberCount: -1 },
-          lastActivityAt: new Date(),
-        },
-        { new: true },
-      )
-      .exec();
-  }
-
-  async updateMember(
-    categoryId: string,
-    userId: string,
-    memberData: Partial<{ role: string; metadata: any }>,
-  ): Promise<CategoryDocument | null> {
-    return this.categoryModel
-      .findOneAndUpdate(
-        { _id: categoryId, 'members.userId': userId },
-        {
-          $set: {
-            'members.$.role': memberData.role,
-            'members.$.metadata': memberData.metadata,
-          },
-          lastActivityAt: new Date(),
-        },
-        { new: true },
-      )
-      .exec();
-  }
-
-  async findMember(
-    categoryId: string,
-    userId: string,
-  ): Promise<{ category: CategoryDocument; member: any } | null> {
-    const category = await this.categoryModel
-      .findOne({
-        _id: categoryId,
-        'members.userId': userId,
-      })
-      .exec();
-
-    if (!category) return null;
-
-    const member = category.members.find((m) => m.userId === userId);
-    return { category, member };
-  }
-
-  async findCategoriesByUser(userId: string): Promise<CategoryDocument[]> {
-    return this.categoryModel
-      .find({
-        'members.userId': userId,
-        isActive: true,
-      })
-      .exec();
-  }
+  // ❌ XÓA: Các methods này đã được thay thế bởi CategoryMemberService
+  // - addMember() → CategoryMemberService.addMember()
+  // - removeMember() → CategoryMemberService.removeMember()
+  // - updateMember() → Không còn cần thiết (CategoryMember không có role/metadata)
+  // - findMember() → CategoryMemberService.findMember()
+  // - findCategoriesByUser() → CategoryMemberService.getCategoriesByUser()
 
   async findChildren(parentId: string): Promise<CategoryDocument[]> {
     return this.categoryModel.find({ parentId }).exec();

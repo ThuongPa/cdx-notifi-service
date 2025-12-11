@@ -195,7 +195,8 @@ db.announcements.createIndex({ targetRoles: 1 });
 db.announcements.createIndex({ targetUsers: 1 });
 db.announcements.createIndex({ createdAt: 1 });
 
-db.user_notifications.createIndex({ userId: 1 });
+// Note: userId index không cần tạo ở đây vì đã có compound indexes { userId: 1, status: 1, createdAt: -1 } và { userId: 1, type: 1, createdAt: -1 } trong database-init.service.ts
+// MongoDB có thể sử dụng prefix của compound index cho single field queries
 db.user_notifications.createIndex({ announcementId: 1 });
 db.user_notifications.createIndex({ status: 1 });
 db.user_notifications.createIndex({ type: 1 });

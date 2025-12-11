@@ -3,6 +3,7 @@ import { BulkMarkReadCommand } from './bulk-mark-read.command';
 import { NotificationCacheService } from '../../../../../infrastructure/cache/notification-cache.service';
 import { Injectable, ForbiddenException, Logger, Inject } from '@nestjs/common';
 import { NotificationRepository } from '../../domain/notification.repository';
+import { NovuClient } from '../../../../../infrastructure/external/novu/novu.client';
 
 @Injectable()
 @CommandHandler(BulkMarkReadCommand)
@@ -12,6 +13,7 @@ export class BulkMarkReadHandler implements ICommandHandler<BulkMarkReadCommand>
   constructor(
     @Inject('NotificationRepository')
     private readonly notificationRepository: NotificationRepository,
+    private readonly novuClient: NovuClient,
     private readonly cacheService: NotificationCacheService,
   ) {}
 
@@ -20,20 +22,16 @@ export class BulkMarkReadHandler implements ICommandHandler<BulkMarkReadCommand>
     const readAt = new Date();
     let updatedCount = 0;
 
-    const notifications = await (this.notificationRepository as any).getUserNotifications(userId, {
-      limit: 1000,
-    });
-
-    const idSet = new Set(ids);
-    for (const n of notifications) {
-      if (idSet.has(n.id) && !n.readAt) {
-        if (n.userId !== userId) {
-          throw new ForbiddenException('Access denied');
-        }
-        await (this.notificationRepository as any).updateUserNotificationStatus(n.id, 'read', {
-          readAt,
-        });
+    // ✅ THAY ĐỔI: Mark từng notification as read trong Novu API
+    for (const notificationId of ids) {
+      try {
+        await this.novuClient.markNotificationAsRead(userId, notificationId);
         updatedCount++;
+      } catch (error) {
+        // Skip if notification not found or already read
+        this.logger.warn(
+          `Failed to mark notification ${notificationId} as read: ${error.message}`,
+        );
       }
     }
 

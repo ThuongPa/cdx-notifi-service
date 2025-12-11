@@ -76,7 +76,8 @@ export class BroadcastNotificationService {
 
       // Create user notifications if not scheduled
       if (!broadcastDto.scheduledAt) {
-        await this.createUserNotifications(savedAnnouncement, targetUsers);
+        // ✅ REMOVED: Không tạo user notifications vào database nữa, Novu tự quản lý
+        this.logger.log(`User notifications not created (managed by Novu) for announcement: ${savedAnnouncement.id}`);
 
         // Queue notifications for processing
         await this.queueNotificationsForSending(savedAnnouncement, targetUsers);

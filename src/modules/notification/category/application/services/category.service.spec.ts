@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { CategoryService } from './category.service';
 import { CategoryRepository } from '../../infrastructure/category.repository';
 import { Category } from '../../domain/category.entity';
+import { CategoryMemberService } from '../../category-member.service';
+import { NovuClient } from '../../../../../infrastructure/external/novu/novu.client';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 
 describe('CategoryService', () => {
@@ -20,12 +22,31 @@ describe('CategoryService', () => {
       delete: jest.fn(),
     };
 
+    const mockCategoryMemberService = {
+      addMember: jest.fn(),
+      removeMember: jest.fn(),
+      isMember: jest.fn(),
+      bulkAddMembers: jest.fn(),
+    };
+
+    const mockNovuClient = {
+      createTopic: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CategoryService,
         {
           provide: 'CategoryRepository',
           useValue: mockCategoryRepository,
+        },
+        {
+          provide: CategoryMemberService,
+          useValue: mockCategoryMemberService,
+        },
+        {
+          provide: NovuClient,
+          useValue: mockNovuClient,
         },
       ],
     }).compile();
@@ -93,17 +114,16 @@ describe('CategoryService', () => {
       expect(categoryRepository.save).toHaveBeenCalledTimes(2); // category + parent update
     });
 
-    it('should throw BadRequestException if parent category not found', async () => {
+    it('should throw NotFoundException if parent category not found', async () => {
       const createDto = {
         name: 'Child Category',
         parentId: 'nonexistent',
       };
 
+      categoryRepository.findByName.mockResolvedValue(null);
       categoryRepository.findById.mockResolvedValue(null);
 
-      await expect(service.createCategory(createDto, 'user123')).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.createCategory(createDto, 'user123')).rejects.toThrow(NotFoundException);
     });
 
     it('should throw BadRequestException if parent category is inactive', async () => {
@@ -170,6 +190,7 @@ describe('CategoryService', () => {
       });
 
       categoryRepository.findById.mockResolvedValue(mockCategory);
+      categoryRepository.findByName.mockResolvedValue(null);
       categoryRepository.save.mockResolvedValue(updatedCategory);
 
       const result = await service.updateCategory('category123', updates);
@@ -248,10 +269,17 @@ describe('CategoryService', () => {
         isActive: true,
         createdBy: 'user123',
       });
-      mockCategory.addChild('child1');
-      mockCategory.addChild('child2');
+      const child1 = Category.create({
+        name: 'Child 1',
+        isActive: true,
+        createdBy: 'user123',
+      });
 
-      categoryRepository.findById.mockResolvedValue(mockCategory);
+      categoryRepository.findById
+        .mockResolvedValueOnce(mockCategory) // for getCategoryById
+        .mockResolvedValueOnce(mockCategory); // for getCategoryChildren
+      const mockGetCategoryChildren = jest.fn().mockResolvedValue([child1]);
+      jest.spyOn(service, 'getCategoryChildren').mockImplementation(mockGetCategoryChildren);
 
       await expect(service.deleteCategory('category123')).rejects.toThrow(BadRequestException);
     });
@@ -603,10 +631,15 @@ describe('CategoryService', () => {
         createdBy: 'user123',
       });
 
+      // deleteCategory calls getCategoryById (findById) and getCategoryChildren (findById for each child)
+      // For each category: getCategoryById + getCategoryChildren
       categoryRepository.findById
-        .mockResolvedValueOnce(mockCategory1)
-        .mockResolvedValueOnce(mockCategory2);
-
+        .mockResolvedValueOnce(mockCategory1) // category1: getCategoryById
+        .mockResolvedValueOnce(mockCategory1) // category1: getCategoryChildren
+        .mockResolvedValueOnce(mockCategory2) // category2: getCategoryById
+        .mockResolvedValueOnce(mockCategory2); // category2: getCategoryChildren
+      const mockGetCategoryChildren = jest.fn().mockResolvedValue([]);
+      jest.spyOn(service, 'getCategoryChildren').mockImplementation(mockGetCategoryChildren);
       categoryRepository.delete.mockResolvedValue(undefined);
 
       await service.bulkDeleteCategories(['category1', 'category2']);

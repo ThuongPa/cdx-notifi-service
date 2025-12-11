@@ -21,7 +21,11 @@
     "test:integration": "jest --config ./test/jest-integration.json",
     "seed": "node scripts/seed/seed-runner.js",
     "seed:templates": "node scripts/seed/seed-templates.js",
-    "seed:user": "node scripts/seed/seed-user.js"
+    "seed:user": "node scripts/seed/seed-user.js",
+    "test:webhook-api": "node scripts/test-novu-webhook-api.js",
+    "test:webhook": "node scripts/test-webhook-endpoint.js",
+    "test:webhook-status": "node scripts/test-webhook-status-update.js",
+    "test:workflow": "node scripts/test-complete-workflow.js"
   },
   "dependencies": {
     "@fastify/compress": "^8.1.0",
@@ -37,9 +41,11 @@
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^10.0.0",
     "@nestjs/platform-fastify": "^10.4.20",
+    "@nestjs/platform-socket.io": "^10.0.0",
     "@nestjs/schedule": "^6.0.1",
     "@nestjs/swagger": "^7.3.0",
     "@nestjs/terminus": "^10.2.0",
+    "@nestjs/websockets": "^10.0.0",
     "@novu/api": "^1.7.1",
     "@paralleldrive/cuid2": "^2.2.2",
     "amqplib": "^0.10.4",
@@ -60,6 +66,7 @@
     "redis": "^4.7.1",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.1",
+    "socket.io-client": "^4.8.1",
     "swagger-ui-express": "^5.0.0",
     "uuid": "^10.0.0",
     "winston": "^3.11.0"
@@ -76,6 +83,7 @@
     "@types/node": "^20.0.0",
     "@types/passport-jwt": "^4.0.0",
     "@types/passport-local": "^1.0.38",
+    "@types/socket.io-client": "^1.4.36",
     "@types/supertest": "^6.0.2",
     "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^6.21.0",

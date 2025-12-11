@@ -20,6 +20,7 @@ import {
 } from './event-handlers/auth-event.handler';
 import {
   LoaphuongContentPublishedEventHandler,
+  LoaphuongSendNotificationEventHandler,
   LoaphuongGenericEventHandler,
 } from './event-handlers/loaphuong-event.handler';
 
@@ -45,6 +46,7 @@ export class NotificationEventConsumer implements OnModuleInit {
     private readonly userDeletedHandler: UserDeletedEventHandler,
     // Loa phường event handlers
     private readonly loaphuongContentPublishedHandler: LoaphuongContentPublishedEventHandler,
+    private readonly loaphuongSendNotificationHandler: LoaphuongSendNotificationEventHandler,
     private readonly loaphuongGenericHandler: LoaphuongGenericEventHandler,
   ) {}
 
@@ -129,6 +131,11 @@ export class NotificationEventConsumer implements OnModuleInit {
     this.rabbitMQConsumerService.registerEventHandler(
       'loaphuong.contentPublished',
       this.loaphuongContentPublishedHandler,
+    );
+
+    this.rabbitMQConsumerService.registerEventHandler(
+      'loaphuong.sendNotification',
+      this.loaphuongSendNotificationHandler,
     );
 
     // Register generic handler for other loaphuong events (optional)

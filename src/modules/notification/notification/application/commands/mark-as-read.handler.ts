@@ -12,6 +12,7 @@ import {
 import { ICommandHandler, CommandHandler } from '@nestjs/cqrs';
 import { MarkAsReadCommand, MarkAsReadResult } from './mark-as-read.command';
 import { NotificationRepositoryImpl } from '../../infrastructure/notification.repository.impl';
+import { NovuClient } from '../../../../../infrastructure/external/novu/novu.client';
 
 @Injectable()
 @CommandHandler(MarkAsReadCommand)
@@ -21,6 +22,7 @@ export class MarkAsReadHandler implements ICommandHandler<MarkAsReadCommand> {
   constructor(
     @Inject('NotificationRepository')
     private readonly notificationRepository: NotificationRepositoryImpl,
+    private readonly novuClient: NovuClient,
     private readonly cacheService: NotificationCacheService,
   ) {}
 
@@ -30,46 +32,18 @@ export class MarkAsReadHandler implements ICommandHandler<MarkAsReadCommand> {
         `Marking notification as read: ${command.notificationId} for user: ${command.userId}`,
       );
 
-      // Get user notifications to find the specific one
-      const userNotifications = await this.notificationRepository.getUserNotifications(
-        command.userId,
-        { limit: 1000 }, // Get more to find the specific notification
-      );
-
-      const notification = userNotifications.find((n) => n.id === command.notificationId);
-
-      if (!notification) {
-        this.logger.warn(
-          `Notification not found: ${command.notificationId} for user: ${command.userId}`,
-        );
-        throw new NotFoundException('Notification not found');
-      }
-
-      // Security check: User can only mark their own notifications as read
-      if (notification.userId !== command.userId) {
-        this.logger.warn(
-          `User ${command.userId} attempted to mark notification ${command.notificationId} as read, but it belongs to user ${notification.userId}`,
-        );
-        throw new ForbiddenException('Access denied');
-      }
-
-      // Check if already read
-      if (notification.readAt) {
-        this.logger.log(`Notification ${command.notificationId} is already read`);
-        return {
-          success: true,
-          notificationId: command.notificationId,
-          readAt: notification.readAt,
-        };
-      }
-
-      // Update notification status to read
+      // ✅ THAY ĐỔI: Mark as read trong Novu API
       const readAt = new Date();
-      await this.notificationRepository.updateUserNotificationStatus(
-        command.notificationId,
-        'read',
-        { readAt },
-      );
+      
+      try {
+        await this.novuClient.markNotificationAsRead(command.userId, command.notificationId);
+      } catch (error) {
+        // Check if notification not found
+        if (error.message.includes('404') || error.message.includes('not found')) {
+          throw new NotFoundException('Notification not found');
+        }
+        throw error;
+      }
 
       const result: MarkAsReadResult = {
         success: true,

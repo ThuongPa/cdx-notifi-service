@@ -99,8 +99,9 @@ export class OptimizedNotificationEventPayloadDto {
   @IsString()
   sourceService: string;
 
+  @IsOptional()
   @IsString()
-  contentId: string;
+  contentId?: string;
 
   @IsOptional()
   @IsString()

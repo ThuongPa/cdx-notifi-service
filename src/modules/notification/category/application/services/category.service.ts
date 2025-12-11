@@ -1,6 +1,15 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  Inject,
+  ConflictException,
+} from '@nestjs/common';
 import { Category } from '../../domain/category.entity';
 import { CategoryRepository } from '../../infrastructure/category.repository';
+import { CategoryMemberService } from '../../category-member.service';
+import { NovuClient } from '../../../../../infrastructure/external/novu/novu.client';
 
 export interface CreateCategoryDto {
   name: string;
@@ -55,17 +64,25 @@ export class CategoryService {
 
   constructor(
     @Inject('CategoryRepository') private readonly categoryRepository: CategoryRepository,
+    private readonly categoryMemberService: CategoryMemberService,
+    private readonly novuClient: NovuClient,
   ) {}
 
   async createCategory(dto: CreateCategoryDto, createdBy: string): Promise<Category> {
     this.logger.log(`Creating category: ${dto.name}`);
 
     try {
+      // Check if category with same name already exists
+      const existingCategory = await this.categoryRepository.findByName(dto.name);
+      if (existingCategory) {
+        throw new ConflictException(`Category with name '${dto.name}' already exists`);
+      }
+
       // Validate parent category if provided
       if (dto.parentId) {
         const parentCategory = await this.categoryRepository.findById(dto.parentId);
         if (!parentCategory) {
-          throw new BadRequestException(`Parent category with ID '${dto.parentId}' not found`);
+          throw new NotFoundException(`Parent category with ID '${dto.parentId}' not found`);
         }
         if (!parentCategory.isActive) {
           throw new BadRequestException('Cannot create subcategory under inactive parent category');
@@ -84,6 +101,16 @@ export class CategoryService {
       });
 
       const savedCategory = await this.categoryRepository.save(category);
+
+      // ⭐ THÊM: Tạo Novu Topic
+      const topicKey = `category_${savedCategory.id}`;
+      try {
+        await this.novuClient.createTopic(topicKey, savedCategory.name);
+        this.logger.log(`Novu topic created: ${topicKey} for category ${savedCategory.name}`);
+      } catch (error) {
+        this.logger.warn(`Failed to create Novu topic: ${error.message}`);
+        // Không fail operation, chỉ log warning
+      }
 
       // Update parent category to include this child
       if (dto.parentId) {
@@ -122,6 +149,14 @@ export class CategoryService {
 
   async updateCategory(id: string, dto: UpdateCategoryDto): Promise<Category> {
     const category = await this.getCategoryById(id);
+
+    // Check if new name already exists (if name is being changed)
+    if (dto.name && dto.name !== category.name) {
+      const existingCategory = await this.categoryRepository.findByName(dto.name);
+      if (existingCategory && existingCategory.id !== id) {
+        throw new ConflictException(`Category with name '${dto.name}' already exists`);
+      }
+    }
 
     // Validate parent category if changing
     if (dto.parentId !== undefined && dto.parentId !== category.parentId) {
@@ -164,7 +199,8 @@ export class CategoryService {
     const category = await this.getCategoryById(id);
 
     // Check if category has children
-    if (category.children.length > 0) {
+    const children = await this.getCategoryChildren(id);
+    if (children && children.length > 0) {
       throw new BadRequestException(
         'Cannot delete category with subcategories. Please delete subcategories first.',
       );
@@ -333,30 +369,133 @@ export class CategoryService {
   }
 
   async addMember(id: string, memberDto: AddMemberDto): Promise<Category> {
-    const category = await this.getCategoryById(id);
-    // Add member logic would go here
-    // For now, just return the category
-    return category;
+    try {
+      const category = await this.getCategoryById(id);
+      if (!category) {
+        throw new NotFoundException(`Category with ID '${id}' not found`);
+      }
+
+      // Check if user is already a member
+      const isMember = await this.categoryMemberService.isMember(id, memberDto.userId);
+      if (isMember) {
+        throw new ConflictException('User is already a member of this category');
+      }
+
+      // ✅ THAY ĐỔI: Dùng CategoryMemberService thay vì members array
+      await this.categoryMemberService.addMember(id, memberDto.userId);
+
+      this.logger.log(`Member added to category: ${memberDto.userId} -> ${id}`);
+      return category;
+    } catch (error) {
+      this.logger.error(`Failed to add member: ${error.message}`, error.stack);
+      throw error;
+    }
   }
 
   async removeMember(id: string, userId: string): Promise<Category> {
-    const category = await this.getCategoryById(id);
-    // Remove member logic would go here
-    // For now, just return the category
-    return category;
+    try {
+      const category = await this.getCategoryById(id);
+      if (!category) {
+        throw new NotFoundException(`Category with ID '${id}' not found`);
+      }
+
+      // Check if user is a member
+      const isMember = await this.categoryMemberService.isMember(id, userId);
+      if (!isMember) {
+        throw new NotFoundException('User is not a member of this category');
+      }
+
+      // ✅ THAY ĐỔI: Dùng CategoryMemberService
+      await this.categoryMemberService.removeMember(id, userId);
+
+      this.logger.log(`Member removed from category: ${userId} -> ${id}`);
+      return category;
+    } catch (error) {
+      this.logger.error(`Failed to remove member: ${error.message}`, error.stack);
+      throw error;
+    }
   }
 
   async updateMember(id: string, userId: string, memberDto: UpdateMemberDto): Promise<Category> {
-    const category = await this.getCategoryById(id);
-    // Update member logic would go here
-    // For now, just return the category
-    return category;
+    try {
+      const category = await this.getCategoryById(id);
+      if (!category) {
+        throw new NotFoundException(`Category with ID '${id}' not found`);
+      }
+
+      // Check if user is a member
+      const isMember = await this.categoryMemberService.isMember(id, userId);
+      if (!isMember) {
+        throw new NotFoundException('User is not a member of this category');
+      }
+
+      // ⚠️ NOTE: UpdateMemberDto có role và metadata
+      // Hiện tại CategoryMember schema không có role/metadata
+      // Tạm thời chỉ log, không update vì CategoryMember không có các fields này
+      this.logger.log(`Member update requested (role/metadata not stored in CategoryMember):`, {
+        categoryId: id,
+        userId,
+        changes: memberDto,
+      });
+
+      return category;
+    } catch (error) {
+      this.logger.error(`Failed to update member: ${error.message}`, error.stack);
+      throw error;
+    }
   }
 
   async bulkMemberOperation(id: string, operationDto: BulkMemberOperationDto): Promise<Category> {
-    const category = await this.getCategoryById(id);
-    // Bulk member operation logic would go here
-    // For now, just return the category
-    return category;
+    try {
+      if (operationDto.userIds.length === 0) {
+        throw new BadRequestException('User IDs list cannot be empty');
+      }
+
+      if (operationDto.userIds.length > 1000) {
+        throw new BadRequestException('Cannot process more than 1000 users at once');
+      }
+
+      const category = await this.getCategoryById(id);
+      if (!category) {
+        throw new NotFoundException(`Category with ID '${id}' not found`);
+      }
+
+      // ✅ THAY ĐỔI: Dùng CategoryMemberService
+      if (operationDto.operation === 'add') {
+        await this.categoryMemberService.bulkAddMembers(id, operationDto.userIds);
+      } else if (operationDto.operation === 'remove') {
+        for (const userId of operationDto.userIds) {
+          try {
+            await this.categoryMemberService.removeMember(id, userId);
+          } catch (error) {
+            // Skip if not found, log others
+            if (error.message && error.message.includes('not a member')) {
+              continue;
+            }
+            this.logger.warn(`Failed to remove member ${userId}: ${error.message}`);
+          }
+        }
+      }
+
+      this.logger.log(
+        `Bulk member operation completed: ${operationDto.operation} for ${operationDto.userIds.length} users`,
+      );
+      return category;
+    } catch (error) {
+      this.logger.error(`Failed to perform bulk member operation: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  async incrementNotificationCount(categoryId: string): Promise<Category> {
+    const category = await this.getCategoryById(categoryId);
+    category.incrementNotificationCount();
+    return await this.categoryRepository.save(category);
+  }
+
+  async updateEngagementScore(categoryId: string, score: number): Promise<Category> {
+    const category = await this.getCategoryById(categoryId);
+    category.updateEngagementScore(score);
+    return await this.categoryRepository.save(category);
   }
 }
