@@ -22,20 +22,17 @@ COPY package.json package-lock.json* ./
 # Install dependencies
 RUN npm ci --legacy-peer-deps
 
-# Development dependencies for building
-FROM base AS build-deps
+# Build the application
+FROM base AS builder
 WORKDIR /app
 
+# Copy package files first
 COPY package.json package-lock.json* ./
 
 # Install all dependencies (including devDependencies for build)
 RUN npm ci --legacy-peer-deps
 
-# Build the application
-FROM base AS builder
-WORKDIR /app
-
-COPY --from=build-deps /app/node_modules ./node_modules
+# Copy source code
 COPY . .
 
 # Ensure config and scripts directories exist (create empty if they don't exist)
