@@ -1,55 +1,82 @@
 # ================================
 # Notification Service Dockerfile (NestJS)
+# Optimized for Coolify Deployment
 # ================================
 
-# Build stage
-FROM node:18-alpine AS builder
+# Multi-stage build for production
+FROM node:20.11.0-alpine AS base
 
+# Install system dependencies
+RUN apk add --no-cache \
+    dumb-init \
+    curl \
+    && rm -rf /var/cache/apk/*
+
+# Install dependencies only when needed
+FROM base AS deps
 WORKDIR /app
 
 # Copy package files
-COPY package*.json ./
+COPY package.json package-lock.json* ./
 
 # Install dependencies
-RUN npm install --legacy-peer-deps
+RUN npm ci --legacy-peer-deps
 
-# Copy source code
-COPY . .
-
-# Ensure config directory exists
-RUN mkdir -p config
-
-# Build the application
-RUN npm run build
-
-# Production stage
-FROM node:18-alpine AS production
-
+# Development dependencies for building
+FROM base AS build-deps
 WORKDIR /app
 
-# Install dumb-init and curl for proper signal handling and healthcheck
-RUN apk add --no-cache dumb-init curl
+COPY package.json package-lock.json* ./
+
+# Install all dependencies (including devDependencies for build)
+RUN npm ci --legacy-peer-deps
+
+# Build the application
+FROM base AS builder
+WORKDIR /app
+
+COPY --from=build-deps /app/node_modules ./node_modules
+COPY . .
+
+# Ensure config and scripts directories exist (create empty if they don't exist)
+RUN mkdir -p config scripts
+
+# Build the application (use npx to ensure nest CLI is found)
+RUN npx nest build --config tsconfig.build.json
+
+# Production image, copy all the files and run the app
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=3000
 
 # Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nestjs -u 1001
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nestjs
 
 # Copy package files
-COPY package*.json ./
+COPY package.json package-lock.json* ./
 
 # Install only production dependencies
-RUN npm install --only=production --legacy-peer-deps && npm cache clean --force
+RUN npm ci --only=production --legacy-peer-deps && \
+    npm cache clean --force && \
+    rm -rf /tmp/*
 
-# Copy built application from builder stage
-COPY --from=builder /app/dist ./dist
+# Copy the built application
+COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
 
-# Create config directory and copy files
-RUN mkdir -p config
-COPY --from=builder /app/config ./config
-COPY --from=builder /app/scripts ./scripts
+# Copy config and scripts (directories are created in builder stage, so they always exist)
+COPY --from=builder --chown=nestjs:nodejs /app/config ./config/
+COPY --from=builder --chown=nestjs:nodejs /app/scripts ./scripts/
 
-# Create logs directory with proper permissions
-RUN mkdir -p logs && chown -R nestjs:nodejs logs
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/logs && \
+    chown -R nestjs:nodejs /app
+
+# Health check (using /api/v1/health as per global prefix)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:3000/api/v1/health || exit 1
 
 # Switch to non-root user
 USER nestjs
@@ -57,9 +84,6 @@ USER nestjs
 # Expose port
 EXPOSE 3000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:3000/api/v1/health || exit 1
-
-# Start the application with dumb-init
-CMD ["dumb-init", "node", "dist/main.js"]
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "dist/main.js"]
