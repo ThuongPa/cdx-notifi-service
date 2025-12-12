@@ -26,6 +26,10 @@ RUN npm ci --legacy-peer-deps
 FROM base AS builder
 WORKDIR /app
 
+# Explicitly set NODE_ENV to development to ensure devDependencies are installed
+# npm install skips devDependencies when NODE_ENV=production
+ENV NODE_ENV=development
+
 # Copy package files first
 COPY package.json package-lock.json* ./
 
