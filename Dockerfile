@@ -30,7 +30,11 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # Install all dependencies (including devDependencies for build)
-RUN npm ci --legacy-peer-deps
+# Use npm install instead of npm ci to ensure devDependencies are installed
+RUN npm install --legacy-peer-deps
+
+# Verify nest CLI is installed
+RUN ls -la node_modules/.bin/nest || echo "nest CLI not found in node_modules/.bin"
 
 # Copy source code
 COPY . .
