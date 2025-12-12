@@ -26,15 +26,13 @@ RUN npm ci --legacy-peer-deps
 FROM base AS builder
 WORKDIR /app
 
-# Explicitly set NODE_ENV to development to ensure devDependencies are installed
-# npm install skips devDependencies when NODE_ENV=production
-ENV NODE_ENV=development
-
 # Copy package files first
 COPY package.json package-lock.json* ./
 
 # Install all dependencies (including devDependencies for build)
-RUN npm install --legacy-peer-deps
+# Note: Do NOT set NODE_ENV=production here, as it will skip devDependencies
+# We need @nestjs/cli (devDependency) to build the application
+RUN npm install --legacy-peer-deps --include=dev
 
 # Verify @nestjs/cli is installed and nest CLI exists
 RUN npm list @nestjs/cli || echo "WARNING: @nestjs/cli not found in node_modules"
