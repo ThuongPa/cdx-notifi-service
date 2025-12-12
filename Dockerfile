@@ -30,20 +30,21 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # Install all dependencies (including devDependencies for build)
-# Use npm install instead of npm ci to ensure devDependencies are installed
 RUN npm install --legacy-peer-deps
 
-# Verify nest CLI is installed
-RUN ls -la node_modules/.bin/nest || echo "nest CLI not found in node_modules/.bin"
+# Verify @nestjs/cli is installed and nest CLI exists
+RUN npm list @nestjs/cli || echo "WARNING: @nestjs/cli not found in node_modules"
+RUN ls -la node_modules/.bin/ | grep nest || echo "WARNING: nest not found in node_modules/.bin"
+RUN which nest || echo "WARNING: nest not in PATH"
 
-# Copy source code
+# Copy source code (tsconfig files needed for build)
 COPY . .
 
 # Ensure config and scripts directories exist (create empty if they don't exist)
 RUN mkdir -p config scripts
 
-# Build the application (npm run build will use nest CLI from node_modules/.bin)
-RUN npm run build
+# Build using full path to nest CLI to ensure it's found
+RUN ./node_modules/.bin/nest build --config tsconfig.build.json || npm run build
 
 # Production image, copy all the files and run the app
 FROM base AS runner
