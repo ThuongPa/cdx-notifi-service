@@ -26,6 +26,7 @@ Tài liệu này tổng hợp tất cả các thay đổi đã được triển 
 ### 1.1. Guards Mới
 
 #### `ServiceNameGuard`
+
 - **File:** `src/common/guards/service-name.guard.ts`
 - **Mục đích:** Chỉ cho phép service-to-service calls với header `X-Service-Name`
 - **Whitelist Services:**
@@ -35,6 +36,7 @@ Tài liệu này tổng hợp tất cả các thay đổi đã được triển 
   - `cdx-booking`
 
 **Cách sử dụng:**
+
 ```typescript
 @UseGuards(ServiceNameGuard)
 @Get('endpoint')
@@ -44,11 +46,13 @@ async endpoint() {
 ```
 
 #### `ServiceNameOrJwtGuard`
+
 - **File:** `src/common/guards/service-name-or-jwt.guard.ts`
 - **Mục đích:** Hybrid guard - hỗ trợ cả service-to-service (X-Service-Name) và user calls (JWT)
 - **Ưu tiên:** X-Service-Name header trước, sau đó fallback về JWT
 
 **Cách sử dụng:**
+
 ```typescript
 @UseGuards(ServiceNameOrJwtGuard)
 @Get('endpoint')
@@ -60,15 +64,18 @@ async endpoint() {
 ### 1.2. Header Authentication
 
 **Header yêu cầu:**
+
 ```
 X-Service-Name: cdx-loaphuong
 ```
 
 **Response khi thiếu header:**
+
 - Status: `401 Unauthorized`
 - Message: `Missing X-Service-Name header`
 
 **Response khi service name không hợp lệ:**
+
 - Status: `401 Unauthorized`
 - Message: `Invalid service name: {serviceName}`
 
@@ -83,9 +90,11 @@ X-Service-Name: cdx-loaphuong
 **Authentication:** `ServiceNameOrJwtGuard` (hỗ trợ cả X-Service-Name và JWT)
 
 **Query Parameters:**
+
 - `url` (required): Webhook URL (URL encoded)
 
 **Request Example:**
+
 ```bash
 GET /api/v1/webhooks/register/check?url=http://localhost:3005/api/v1/webhooks/notifications/status-update
 Headers:
@@ -93,6 +102,7 @@ Headers:
 ```
 
 **Response khi webhook đã đăng ký:**
+
 ```json
 {
   "registered": true,
@@ -108,6 +118,7 @@ Headers:
 ```
 
 **Response khi webhook chưa đăng ký:**
+
 ```json
 {
   "registered": false,
@@ -122,20 +133,18 @@ Headers:
 **Authentication:** `ServiceNameOrJwtGuard` (hỗ trợ cả X-Service-Name và JWT)
 
 **Request Body:**
+
 ```json
 {
   "url": "http://localhost:3005/api/v1/webhooks/notifications/status-update",
-  "events": [
-    "notification.status-update",
-    "notification.sent",
-    "notification.failed"
-  ],
+  "events": ["notification.status-update", "notification.sent", "notification.failed"],
   "secret": "optional-webhook-secret",
   "description": "Webhook for loaphuong service"
 }
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -151,6 +160,7 @@ Headers:
 ```
 
 **Valid Events:**
+
 - `notification.created`
 - `notification.sent`
 - `notification.delivered`
@@ -168,6 +178,7 @@ Headers:
 **Authentication:** `ServiceNameOrJwtGuard` (hỗ trợ cả X-Service-Name và JWT)
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -187,6 +198,7 @@ Headers:
 **Authentication:** `ServiceNameOrJwtGuard` (hỗ trợ cả X-Service-Name và JWT)
 
 **Query Parameters:**
+
 - `page` (optional): Số trang (default: 1)
 - `limit` (optional): Số lượng mỗi trang (default: 20, max: 100)
 - `type` (optional): Loại notification
@@ -200,6 +212,7 @@ Headers:
 - `sortOrder` (optional): Thứ tự (asc, desc)
 
 **Request Example (Service-to-Service):**
+
 ```bash
 GET /api/v1/notifications/history?sourceService=cdx-loaphuong&page=1&limit=20
 Headers:
@@ -207,6 +220,7 @@ Headers:
 ```
 
 **Request Example (User):**
+
 ```bash
 GET /api/v1/notifications/history?page=1&limit=20
 Headers:
@@ -214,6 +228,7 @@ Headers:
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -257,9 +272,11 @@ Headers:
 **Authentication:** `ServiceNameOrJwtGuard` (hỗ trợ cả X-Service-Name và JWT)
 
 **Path Parameters:**
+
 - `correlationId` (required): Correlation ID của notification
 
 **Request Example:**
+
 ```bash
 GET /api/v1/notifications/history/correlation/correlation-123
 Headers:
@@ -267,6 +284,7 @@ Headers:
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -292,6 +310,7 @@ Headers:
 ```
 
 **Error Response (Not Found):**
+
 ```json
 {
   "success": false,
@@ -307,9 +326,11 @@ Headers:
 **Authentication:** `ServiceNameOrJwtGuard` (hỗ trợ cả X-Service-Name và JWT)
 
 **Path Parameters:**
+
 - `notificationId` (required): ID của notification
 
 **Request Example:**
+
 ```bash
 GET /api/v1/notifications/history/notification-id-123
 Headers:
@@ -327,11 +348,13 @@ Headers:
 **Schema:** `UserNotification.data`
 
 **Fields mới:**
+
 - `correlationId`: ID để trace notification request across services
 - `sentBy`: User ID của người gửi notification
 - `sourceService`: Service nguồn gửi notification
 
 **Ví dụ:**
+
 ```json
 {
   "id": "notification-id",
@@ -353,6 +376,7 @@ Headers:
 **File:** `src/infrastructure/database/database-init.service.ts`
 
 **Indexes mới:**
+
 ```javascript
 // Index cho correlationId
 { 'data.correlationId': 1 }
@@ -378,12 +402,14 @@ Headers:
 **File:** `src/modules/notification/integration/rabbitmq/utils/event-normalizer.util.ts`
 
 **Thay đổi:**
+
 - Extract `payload.sentBy` từ event payload
 - Extract `event.correlationId` từ event
 - Validate `payload.sentBy` là required field
 - Lưu vào `data` object của notification
 
 **Ví dụ Event:**
+
 ```json
 {
   "eventType": "notification.created",
@@ -403,6 +429,7 @@ Headers:
 **File:** `src/modules/notification/priority-queue/priority-queue.service.ts`
 
 **Thay đổi:**
+
 - Lưu `sentBy` và `correlationId` vào `UserNotification.data`
 - Đảm bảo các fields này được persist vào database
 
@@ -411,6 +438,7 @@ Headers:
 **File:** `src/modules/notification/notification/application/services/notification-processing.service.ts`
 
 **Thay đổi:**
+
 - Truyền `sentBy` và `correlationId` vào notification message
 - Đảm bảo data được truyền đúng qua các layers
 
@@ -513,12 +541,14 @@ $response.Content | ConvertFrom-Json | ConvertTo-Json -Depth 10
 ### 8.1. Service Whitelist
 
 Chỉ các service trong whitelist mới được phép sử dụng `X-Service-Name` header:
+
 - `cdx-loaphuong`
 - `cdx-task`
 - `cdx-payment`
 - `cdx-booking`
 
 **Lưu ý:** Để thêm service mới, cập nhật array `allowedServices` trong:
+
 - `src/common/guards/service-name.guard.ts`
 - `src/common/guards/service-name-or-jwt.guard.ts`
 
@@ -535,14 +565,16 @@ Chỉ các service trong whitelist mới được phép sử dụng `X-Service-N
 ### 9.1. Cho External Services (như cdx-loaphuong)
 
 **Bước 1:** Thêm header `X-Service-Name` vào requests
+
 ```typescript
 const headers = {
   'X-Service-Name': 'cdx-loaphuong',
-  'Content-Type': 'application/json'
+  'Content-Type': 'application/json',
 };
 ```
 
 **Bước 2:** Sử dụng các endpoints mới
+
 - `GET /api/v1/webhooks/register/check?url={webhookUrl}`
 - `POST /api/v1/webhooks/register`
 - `DELETE /api/v1/webhooks/register/:webhookId`
@@ -550,13 +582,14 @@ const headers = {
 - `GET /api/v1/notifications/history/correlation/:correlationId`
 
 **Bước 3:** Đảm bảo event payload có `sentBy` field
+
 ```json
 {
   "eventType": "notification.created",
   "correlationId": "unique-correlation-id",
   "payload": {
     "sentBy": "user-id-123",
-    "sourceService": "cdx-loaphuong",
+    "sourceService": "cdx-loaphuong"
     // ... other fields
   }
 }
@@ -565,6 +598,7 @@ const headers = {
 ### 9.2. Cho Notification Service
 
 **Bước 1:** Đảm bảo database indexes đã được tạo
+
 - Service sẽ tự động tạo indexes khi khởi động (qua `database-init.service.ts`)
 
 **Bước 2:** Kiểm tra logs để đảm bảo indexes được tạo thành công
@@ -594,6 +628,7 @@ Indexes sẽ được tạo tự động khi service khởi động. Không cầ
 ### 11.1. Swagger/OpenAPI
 
 Tất cả các endpoints mới đã được document trong Swagger với:
+
 - `@ApiOperation` - Mô tả endpoint
 - `@ApiResponse` - Response examples
 - `@ApiQuery` / `@ApiParam` - Parameters
@@ -623,6 +658,7 @@ Có thể tạo Postman collection từ Swagger documentation.
 ## 📞 13. Support & Contact
 
 Nếu có vấn đề hoặc câu hỏi, vui lòng liên hệ:
+
 - **Repository:** https://github.com/ThuongPa/cdx-notifi-service
 - **Branch:** `thuongpa`
 - **Commit:** `b966c38`
@@ -647,4 +683,3 @@ Nếu có vấn đề hoặc câu hỏi, vui lòng liên hệ:
 ---
 
 **Tài liệu này sẽ được cập nhật khi có thay đổi mới.**
-

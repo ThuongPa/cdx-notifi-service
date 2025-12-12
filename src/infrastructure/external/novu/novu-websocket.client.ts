@@ -73,8 +73,18 @@ export class NovuWebSocketClient implements OnModuleInit, OnModuleDestroy {
     }
 
     const novuConfig = this.configService.get('novu');
-    const wsUrl = novuConfig?.wsUrl || 'wss://ws.cudanso.net';
+    let wsUrl = novuConfig?.wsUrl || process.env.NOVU_WS_URL || 'wss://ws.cudanso.net';
     const apiKey = novuConfig?.apiKey;
+
+    // Validate URL - must be full URL, not just path
+    if (!wsUrl || (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://'))) {
+      this.logger.error(
+        `Invalid NOVU_WS_URL: ${wsUrl}. Must be full URL starting with ws:// or wss://`,
+      );
+      this.logger.error('Example: wss://novu-service-ws.cudanso.net');
+      this.logger.error('NOT just a path like: /socket.io/');
+      return;
+    }
 
     if (!apiKey) {
       this.logger.warn('NOVU_API_KEY not configured, cannot connect to WebSocket');
@@ -83,10 +93,23 @@ export class NovuWebSocketClient implements OnModuleInit, OnModuleDestroy {
 
     try {
       this.logger.log(`Connecting to Novu WebSocket: ${wsUrl}`);
+      this.logger.debug(`Using API Key: ${apiKey ? `${apiKey.substring(0, 8)}...` : 'NOT SET'}`);
 
       // Novu uses Socket.IO with authentication via query params or headers
-      this.socket = io(wsUrl, {
-        transports: ['websocket', 'polling'],
+      // Try polling first if websocket fails (better for self-hosted with SSL issues)
+      const forcePolling = process.env.NOVU_WS_FORCE_POLLING === 'true';
+      // Socket.IO path: 
+      // - If not set or empty: Socket.IO will use default '/socket.io/'
+      // - If set to '/': use root path
+      // - If set to '/socket.io/': use standard Socket.IO path
+      const socketPath = process.env.NOVU_WS_PATH?.trim() || undefined; // undefined = use Socket.IO default
+
+      const effectivePath = socketPath || '/socket.io/'; // Socket.IO default is '/socket.io/'
+      this.logger.debug(`Socket.IO path: ${effectivePath} (configured: ${socketPath || 'default'}), Force polling: ${forcePolling}`);
+      this.logger.debug(`Full connection URL will be: ${wsUrl}${effectivePath}`);
+
+      const socketOptions: any = {
+        transports: forcePolling ? ['polling'] : ['polling', 'websocket'], // Try polling first for better compatibility
         auth: {
           apiKey: apiKey,
         },
@@ -98,7 +121,31 @@ export class NovuWebSocketClient implements OnModuleInit, OnModuleDestroy {
         reconnectionDelay: 2000, // Start with 2s delay
         reconnectionDelayMax: 10000, // Max 10s delay
         timeout: 20000, // Connection timeout
-      });
+        upgrade: true,
+        rememberUpgrade: false,
+        forceNew: false,
+      };
+
+      // Only set path if explicitly configured (Socket.IO default is '/socket.io/')
+      if (socketPath) {
+        socketOptions.path = socketPath;
+      }
+      // If socketPath is undefined, Socket.IO will use its default '/socket.io/'
+
+      // Handle SSL/TLS for wss:// connections (self-hosted may have self-signed certs)
+      if (wsUrl.startsWith('wss://')) {
+        // Allow self-signed certificates for self-hosted Novu
+        // In production, you may want to set this to true and use proper certificates
+        socketOptions.rejectUnauthorized = process.env.NOVU_WS_REJECT_UNAUTHORIZED !== 'false';
+
+        if (!socketOptions.rejectUnauthorized) {
+          this.logger.warn(
+            'SSL certificate validation is disabled for Novu WebSocket (self-hosted)',
+          );
+        }
+      }
+
+      this.socket = io(wsUrl, socketOptions);
 
       this.setupEventHandlers();
     } catch (error) {
@@ -125,7 +172,7 @@ export class NovuWebSocketClient implements OnModuleInit, OnModuleDestroy {
       if (!this.isReconnecting) {
         this.logger.warn(`Disconnected from Novu WebSocket: ${reason}`);
       }
-      
+
       if (reason === 'io server disconnect') {
         // Server disconnected - use exponential backoff instead of immediate reconnect
         // Socket.IO will handle reconnection automatically, but we add rate limiting
@@ -135,14 +182,54 @@ export class NovuWebSocketClient implements OnModuleInit, OnModuleDestroy {
           return;
         }
         this.lastReconnectAttempt = now;
-        
+
         // Let Socket.IO handle reconnection with its built-in retry logic
         // Don't manually call connect() to avoid duplicate connection attempts
       }
     });
 
-    this.socket.on('connect_error', (error: Error) => {
-      this.logger.error(`Novu WebSocket connection error: ${error.message}`);
+    this.socket.on('connect_error', (error: any) => {
+      this.logger.error(`Novu WebSocket connection error: ${error.message || 'Unknown error'}`);
+      this.logger.error(`Error type: ${error.type || 'Unknown'}`);
+
+      // Check for HTTP status codes in error response
+      const statusCode = error.context?.status || error.status || error.response?.status;
+      if (statusCode) {
+        this.logger.error(`HTTP Status Code: ${statusCode}`);
+
+        if (statusCode === 502) {
+          this.logger.error('502 Bad Gateway - Coolify cannot reach Novu WS service backend');
+        } else if (statusCode === 404) {
+          this.logger.error('404 Not Found - Check if the WebSocket path is correct');
+          this.logger.error(`  Current path: ${process.env.NOVU_WS_PATH || '/'}`);
+          this.logger.error('  Try: NOVU_WS_PATH=/socket.io/ or NOVU_WS_PATH=/');
+        } else if (statusCode === 503) {
+          this.logger.error(
+            '503 Service Unavailable - Novu WebSocket server is down or overloaded',
+          );
+        }
+      }
+
+      // Handle specific error types
+      if (error.message?.includes('websocket error')) {
+        this.logger.error('WebSocket upgrade failed. Try:');
+        this.logger.error('  1. Set NOVU_WS_PATH=/ or NOVU_WS_PATH=/socket.io/');
+        this.logger.error('  2. Set NOVU_WS_REJECT_UNAUTHORIZED=false (for self-hosted)');
+        this.logger.error('  3. Set NOVU_WS_FORCE_POLLING=true (use polling only)');
+        this.logger.error('  4. Check Traefik WebSocket middleware in Coolify');
+      }
+
+      if (
+        error.message?.includes('ENOTFOUND') ||
+        error.message?.includes('getaddrinfo') ||
+        error.context?.hostname === 'undefined'
+      ) {
+        this.logger.error('❌ DNS lookup failed - hostname is undefined!');
+        this.logger.error('NOVU_WS_URL must be full URL (e.g., wss://novu-service-ws.cudanso.net)');
+        this.logger.error('NOT just a path (e.g., /socket.io/)');
+        this.logger.error(`Current NOVU_WS_URL: ${process.env.NOVU_WS_URL || 'NOT SET'}`);
+      }
+
       this.scheduleReconnect();
     });
 
@@ -245,7 +332,9 @@ export class NovuWebSocketClient implements OnModuleInit, OnModuleDestroy {
     }
 
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.logger.error('Max reconnection attempts reached. WebSocket will not reconnect automatically.');
+      this.logger.error(
+        'Max reconnection attempts reached. WebSocket will not reconnect automatically.',
+      );
       this.isReconnecting = false;
       return;
     }
@@ -263,7 +352,9 @@ export class NovuWebSocketClient implements OnModuleInit, OnModuleDestroy {
 
     // Only log every 5th attempt to reduce log spam
     if (this.reconnectAttempts % 5 === 1 || this.reconnectAttempts <= 3) {
-      this.logger.log(`Scheduling reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
+      this.logger.log(
+        `Scheduling reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`,
+      );
     }
 
     this.reconnectTimeout = setTimeout(() => {
@@ -272,4 +363,3 @@ export class NovuWebSocketClient implements OnModuleInit, OnModuleDestroy {
     }, delay);
   }
 }
-
