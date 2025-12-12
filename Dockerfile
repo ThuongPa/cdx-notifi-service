@@ -41,8 +41,8 @@ COPY . .
 # Ensure config and scripts directories exist (create empty if they don't exist)
 RUN mkdir -p config scripts
 
-# Build the application (use npx to ensure nest CLI is found)
-RUN npx nest build --config tsconfig.build.json
+# Build the application (npm run build will use nest CLI from node_modules/.bin)
+RUN npm run build
 
 # Production image, copy all the files and run the app
 FROM base AS runner
