@@ -26,20 +26,22 @@ import { Type } from 'class-transformer';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { AdminGuard } from '../../../common/guards/admin.guard';
-import { WebhookService } from './webhook.service';
+import { ServiceNameOrJwtGuard } from '../../../common/guards/service-name-or-jwt.guard';
+import { WebhookService } from './application/services/webhook.service';
 import { CreateWebhookDto } from './dto/create-webhook.dto';
 import { UpdateWebhookDto } from './dto/update-webhook.dto';
 import { WebhookDeliveryDto } from './dto/webhook-delivery.dto';
+import { RegisterWebhookDto } from './dto/register-webhook.dto';
+import { Req, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 
 @ApiTags('Webhook Management')
 @Controller('webhooks')
-@UseGuards(JwtAuthGuard)
-@ApiBearerAuth('bearerAuth')
 export class WebhookController {
   constructor(private readonly webhookService: WebhookService) {}
 
   @Post()
-  @UseGuards(AdminGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiBearerAuth('bearerAuth')
   @ApiOperation({ summary: 'Create a new webhook' })
   @ApiBody({
     description: 'Webhook creation data',
@@ -108,6 +110,8 @@ export class WebhookController {
   }
 
   @Get()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearerAuth')
   @ApiOperation({ summary: 'Get webhooks with filtering and pagination' })
   @ApiQuery({ name: 'name', required: false, description: 'Filter by webhook name' })
   @ApiQuery({ name: 'url', required: false, description: 'Filter by webhook URL' })
@@ -147,24 +151,23 @@ export class WebhookController {
     @Res() res?: Response,
   ): Promise<void> {
     try {
-      const filters = {
+      const filters: any = {
         name,
         url,
-        eventTypes: eventTypes ? (eventTypes.split(',') as any) : undefined,
-        status: status as any,
+        events: eventTypes ? eventTypes.split(',') : undefined,
         isActive,
         createdBy,
-        search,
       };
 
-      const sort = {
-        field: (sortField as any) || 'createdAt',
-        order: (sortOrder as any) || 'desc',
-      };
+      // Apply pagination to filters
+      if (limit) {
+        filters.limit = limit;
+      }
+      if (page && limit) {
+        filters.offset = (page - 1) * limit;
+      }
 
-      const pagination = { page: page || 1, limit: limit || 10 };
-
-      const result = await this.webhookService.getWebhooks(filters, sort, pagination);
+      const result = await this.webhookService.getWebhooks(filters);
 
       res!.status(HttpStatus.OK).json({
         success: true,
@@ -182,6 +185,8 @@ export class WebhookController {
   }
 
   @Get('statistics')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearerAuth')
   @ApiOperation({ summary: 'Get webhook statistics' })
   @ApiQuery({
     name: 'webhookId',
@@ -197,7 +202,7 @@ export class WebhookController {
     @Res() res?: Response,
   ): Promise<void> {
     try {
-      const statistics = await this.webhookService.getWebhookStatistics(webhookId);
+      const statistics = await this.webhookService.getWebhookStatistics();
 
       res!.status(HttpStatus.OK).json({
         success: true,
@@ -215,6 +220,8 @@ export class WebhookController {
   }
 
   @Get(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearerAuth')
   @ApiOperation({ summary: 'Get webhook by ID' })
   @ApiParam({ name: 'id', description: 'Webhook ID' })
   @ApiResponse({
@@ -242,7 +249,8 @@ export class WebhookController {
   }
 
   @Put(':id')
-  @UseGuards(AdminGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiBearerAuth('bearerAuth')
   @ApiOperation({ summary: 'Update webhook' })
   @ApiParam({ name: 'id', description: 'Webhook ID' })
   @ApiBody({
@@ -287,7 +295,7 @@ export class WebhookController {
     @Res() res?: Response,
   ): Promise<void> {
     try {
-      const webhook = await this.webhookService.updateWebhook(id, updateDto, 'system'); // TODO: Get from auth context
+      const webhook = await this.webhookService.updateWebhook(id, updateDto);
 
       res!.status(HttpStatus.OK).json({
         success: true,
@@ -306,7 +314,8 @@ export class WebhookController {
   }
 
   @Delete(':id')
-  @UseGuards(AdminGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiBearerAuth('bearerAuth')
   @ApiOperation({ summary: 'Delete webhook' })
   @ApiParam({ name: 'id', description: 'Webhook ID' })
   @ApiResponse({
@@ -334,239 +343,312 @@ export class WebhookController {
   }
 
   @Post('trigger')
-  @UseGuards(AdminGuard)
-  @ApiOperation({ summary: 'Trigger webhook delivery' })
-  @ApiBody({
-    description: 'Webhook delivery data',
-    schema: {
-      type: 'object',
-      properties: {
-        webhookId: { type: 'string', description: 'Webhook ID' },
-        eventType: { type: 'string', description: 'Event type' },
-        eventId: { type: 'string', description: 'Event ID' },
-        payload: { type: 'object', description: 'Event payload' },
-        method: { type: 'string', enum: ['POST', 'PUT', 'PATCH'], description: 'HTTP method' },
-        headers: { type: 'object', description: 'Additional headers' },
-        scheduledAt: {
-          type: 'string',
-          format: 'date-time',
-          description: 'Scheduled delivery time',
-        },
-        expiresAt: { type: 'string', format: 'date-time', description: 'Expiration time' },
-        metadata: { type: 'object', description: 'Additional metadata' },
-      },
-      required: ['webhookId', 'eventType', 'eventId', 'payload'],
-    },
-  })
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @ApiBearerAuth('bearerAuth')
+  @ApiOperation({ summary: 'Trigger webhook delivery (Not implemented yet)' })
   @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Webhook triggered successfully',
+    status: HttpStatus.NOT_IMPLEMENTED,
+    description: 'This endpoint is not implemented yet',
   })
   async triggerWebhook(
     @Body() deliveryDto: WebhookDeliveryDto,
-    @Res() res?: Response,
+    @Res() res: Response,
   ): Promise<void> {
-    try {
-      const delivery = await this.webhookService.triggerWebhook(deliveryDto);
-
-      res!.status(HttpStatus.OK).json({
-        success: true,
-        data: delivery,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error) {
-      const status = error.status || HttpStatus.INTERNAL_SERVER_ERROR;
-      res!.status(status).json({
-        success: false,
-        error: 'Failed to trigger webhook',
-        message: error.message,
-        timestamp: new Date().toISOString(),
-      });
-    }
+    res.status(HttpStatus.NOT_IMPLEMENTED).json({
+      success: false,
+      error: 'Not implemented',
+      message: 'Webhook delivery functionality is not implemented yet',
+      timestamp: new Date().toISOString(),
+    });
   }
 
   @Get('deliveries')
-  @ApiOperation({ summary: 'Get webhook deliveries with filtering and pagination' })
-  @ApiQuery({ name: 'webhookId', required: false, description: 'Filter by webhook ID' })
-  @ApiQuery({ name: 'eventType', required: false, description: 'Filter by event type' })
-  @ApiQuery({ name: 'eventId', required: false, description: 'Filter by event ID' })
-  @ApiQuery({ name: 'status', required: false, description: 'Filter by delivery status' })
-  @ApiQuery({ name: 'dateFrom', required: false, description: 'Filter by date from' })
-  @ApiQuery({ name: 'dateTo', required: false, description: 'Filter by date to' })
-  @ApiQuery({
-    name: 'sortField',
-    required: false,
-    description: 'Sort field (createdAt, scheduledAt, sentAt, deliveredAt, failedAt)',
-  })
-  @ApiQuery({ name: 'sortOrder', required: false, description: 'Sort order (asc, desc)' })
-  @ApiQuery({ name: 'page', required: false, description: 'Page number' })
-  @ApiQuery({ name: 'limit', required: false, description: 'Items per page' })
+  @ApiOperation({ summary: 'Get webhook deliveries (Not implemented yet)' })
   @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Webhook deliveries retrieved successfully',
+    status: HttpStatus.NOT_IMPLEMENTED,
+    description: 'This endpoint is not implemented yet',
   })
-  async getDeliveries(
-    @Query('webhookId') webhookId?: string,
-    @Query('eventType') eventType?: string,
-    @Query('eventId') eventId?: string,
-    @Query('status') status?: string,
-    @Query('dateFrom') dateFrom?: string,
-    @Query('dateTo') dateTo?: string,
-    @Query('sortField') sortField?: string,
-    @Query('sortOrder') sortOrder?: string,
-    @Query('page', ParseIntPipe) page?: number,
-    @Query('limit', ParseIntPipe) limit?: number,
-    @Res() res?: Response,
-  ): Promise<void> {
-    try {
-      const filters = {
-        webhookId,
-        eventType,
-        eventId,
-        status: status as any,
-        dateFrom: dateFrom ? new Date(dateFrom) : undefined,
-        dateTo: dateTo ? new Date(dateTo) : undefined,
-      };
-
-      const sort = {
-        field: (sortField as any) || 'createdAt',
-        order: (sortOrder as any) || 'desc',
-      };
-
-      const pagination = { page: page || 1, limit: limit || 10 };
-
-      const result = await this.webhookService.getDeliveries(filters, sort, pagination);
-
-      res!.status(HttpStatus.OK).json({
-        success: true,
-        data: result,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error) {
-      res!.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
-        success: false,
-        error: 'Failed to get webhook deliveries',
-        message: error.message,
-        timestamp: new Date().toISOString(),
-      });
-    }
+  async getDeliveries(@Res() res: Response): Promise<void> {
+    res.status(HttpStatus.NOT_IMPLEMENTED).json({
+      success: false,
+      error: 'Not implemented',
+      message: 'Webhook delivery functionality is not implemented yet',
+      timestamp: new Date().toISOString(),
+    });
   }
 
   @Get('deliveries/statistics')
-  @ApiOperation({ summary: 'Get webhook delivery statistics' })
-  @ApiQuery({
-    name: 'webhookId',
-    required: false,
-    description: 'Specific webhook ID for statistics',
-  })
+  @ApiOperation({ summary: 'Get webhook delivery statistics (Not implemented yet)' })
   @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Webhook delivery statistics retrieved successfully',
+    status: HttpStatus.NOT_IMPLEMENTED,
+    description: 'This endpoint is not implemented yet',
   })
-  async getDeliveryStatistics(
-    @Query('webhookId') webhookId?: string,
-    @Res() res?: Response,
-  ): Promise<void> {
-    try {
-      const statistics = await this.webhookService.getDeliveryStatistics(webhookId);
-
-      res!.status(HttpStatus.OK).json({
-        success: true,
-        data: statistics,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error) {
-      res!.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
-        success: false,
-        error: 'Failed to get webhook delivery statistics',
-        message: error.message,
-        timestamp: new Date().toISOString(),
-      });
-    }
+  async getDeliveryStatistics(@Res() res: Response): Promise<void> {
+    res.status(HttpStatus.NOT_IMPLEMENTED).json({
+      success: false,
+      error: 'Not implemented',
+      message: 'Webhook delivery functionality is not implemented yet',
+      timestamp: new Date().toISOString(),
+    });
   }
 
   @Get('deliveries/:id')
-  @ApiOperation({ summary: 'Get webhook delivery by ID' })
-  @ApiParam({ name: 'id', description: 'Delivery ID' })
+  @ApiOperation({ summary: 'Get webhook delivery by ID (Not implemented yet)' })
   @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Webhook delivery retrieved successfully',
+    status: HttpStatus.NOT_IMPLEMENTED,
+    description: 'This endpoint is not implemented yet',
   })
   async getDeliveryById(@Param('id') id: string, @Res() res: Response): Promise<void> {
-    try {
-      const delivery = await this.webhookService.getDeliveryById(id);
-
-      res!.status(HttpStatus.OK).json({
-        success: true,
-        data: delivery,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error) {
-      const status = error.status || HttpStatus.INTERNAL_SERVER_ERROR;
-      res!.status(status).json({
-        success: false,
-        error: 'Failed to get webhook delivery',
-        message: error.message,
-        timestamp: new Date().toISOString(),
-      });
-    }
+    res.status(HttpStatus.NOT_IMPLEMENTED).json({
+      success: false,
+      error: 'Not implemented',
+      message: 'Webhook delivery functionality is not implemented yet',
+      timestamp: new Date().toISOString(),
+    });
   }
 
   @Get('deliveries/webhook/:webhookId')
-  @ApiOperation({ summary: 'Get deliveries for a specific webhook' })
-  @ApiParam({ name: 'webhookId', description: 'Webhook ID' })
+  @ApiOperation({ summary: 'Get deliveries for a specific webhook (Not implemented yet)' })
   @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Webhook deliveries retrieved successfully',
+    status: HttpStatus.NOT_IMPLEMENTED,
+    description: 'This endpoint is not implemented yet',
   })
   async getDeliveriesByWebhook(
     @Param('webhookId') webhookId: string,
-    @Res() res?: Response,
+    @Res() res: Response,
   ): Promise<void> {
-    try {
-      const deliveries = await this.webhookService.getDeliveriesByWebhook(webhookId);
-
-      res!.status(HttpStatus.OK).json({
-        success: true,
-        data: deliveries,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error) {
-      res!.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
-        success: false,
-        error: 'Failed to get webhook deliveries',
-        message: error.message,
-        timestamp: new Date().toISOString(),
-      });
-    }
+    res.status(HttpStatus.NOT_IMPLEMENTED).json({
+      success: false,
+      error: 'Not implemented',
+      message: 'Webhook delivery functionality is not implemented yet',
+      timestamp: new Date().toISOString(),
+    });
   }
 
   @Get('deliveries/event/:eventId')
-  @ApiOperation({ summary: 'Get deliveries for a specific event' })
-  @ApiParam({ name: 'eventId', description: 'Event ID' })
+  @ApiOperation({ summary: 'Get deliveries for a specific event (Not implemented yet)' })
   @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Event deliveries retrieved successfully',
+    status: HttpStatus.NOT_IMPLEMENTED,
+    description: 'This endpoint is not implemented yet',
   })
   async getDeliveriesByEventId(
     @Param('eventId') eventId: string,
-    @Res() res?: Response,
+    @Res() res: Response,
   ): Promise<void> {
-    try {
-      const deliveries = await this.webhookService.getDeliveriesByEventId(eventId);
+    res.status(HttpStatus.NOT_IMPLEMENTED).json({
+      success: false,
+      error: 'Not implemented',
+      message: 'Webhook delivery functionality is not implemented yet',
+      timestamp: new Date().toISOString(),
+    });
+  }
 
-      res!.status(HttpStatus.OK).json({
-        success: true,
-        data: deliveries,
+  // ========================================
+  // Service-to-Service Webhook Registration Endpoints
+  // ========================================
+
+  @Get('register/check')
+  @UseGuards(ServiceNameOrJwtGuard)
+  @ApiOperation({ summary: 'Check if webhook is registered (Service-to-Service)' })
+  @ApiQuery({
+    name: 'url',
+    required: true,
+    description: 'Webhook URL to check (will be URL decoded)',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Webhook registration status',
+  })
+  async checkWebhookRegistration(@Query('url') url: string, @Req() req: any): Promise<any> {
+    try {
+      const decodedUrl = decodeURIComponent(url);
+      const webhooks = await this.webhookService.getWebhooks({ url: decodedUrl });
+      const isRegistered = webhooks && webhooks.length > 0;
+
+      return {
+        registered: isRegistered,
+        webhook: isRegistered
+          ? {
+              id: webhooks[0].id,
+              url: webhooks[0].url,
+              events: webhooks[0].events,
+              status: webhooks[0].isActive ? 'active' : 'inactive',
+              createdAt: webhooks[0].createdAt?.toISOString(),
+            }
+          : null,
         timestamp: new Date().toISOString(),
-      });
+      };
     } catch (error) {
-      res!.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
-        success: false,
-        error: 'Failed to get event deliveries',
-        message: error.message,
+      return {
+        registered: false,
+        error: error.message,
         timestamp: new Date().toISOString(),
-      });
+      };
+    }
+  }
+
+  @Post('register')
+  @UseGuards(ServiceNameOrJwtGuard)
+  @ApiOperation({ summary: 'Register webhook for service-to-service communication' })
+  @ApiBody({
+    description: 'Webhook registration data',
+    schema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Webhook URL to receive notifications' },
+        events: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Event types to listen for (required, must include notification.status-update)',
+        },
+        secret: {
+          type: 'string',
+          description: 'Webhook secret for signature verification (optional)',
+        },
+        description: { type: 'string', description: 'Webhook description (optional)' },
+        name: { type: 'string', description: 'Webhook name (optional)' },
+      },
+      required: ['url', 'events'],
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: 'Webhook registered successfully',
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: 'X-Service-Name header or Bearer token is required',
+  })
+  async registerWebhook(@Body() registerDto: RegisterWebhookDto, @Req() req: any): Promise<any> {
+    try {
+      // Validate events - must include notification.status-update
+      const validEvents = [
+        'notification.sent',
+        'notification.delivered',
+        'notification.failed',
+        'notification.read',
+        'notification.status-update',
+        'notification.bounced',
+        'notification.clicked',
+        'notification.dismissed',
+      ];
+
+      const invalidEvents = registerDto.events.filter((e) => !validEvents.includes(e));
+      if (invalidEvents.length > 0) {
+        throw new BadRequestException(`Invalid event types: ${invalidEvents.join(', ')}`);
+      }
+
+      if (!registerDto.events.includes('notification.status-update')) {
+        throw new BadRequestException('Events must include notification.status-update');
+      }
+
+      // Check for duplicate URL
+      const existingWebhooks = await this.webhookService.getWebhooks({ url: registerDto.url });
+      if (existingWebhooks && existingWebhooks.length > 0) {
+        throw new ConflictException('Webhook with this URL already exists');
+      }
+
+      const serviceName = req.serviceName || req.user?.id || 'system';
+      const webhookName = registerDto.name || `${serviceName}-webhook-${Date.now()}`;
+
+      const createDto: CreateWebhookDto = {
+        name: webhookName,
+        url: registerDto.url,
+        events: registerDto.events,
+        secret: registerDto.secret,
+      };
+
+      const webhook = await this.webhookService.createWebhook(createDto, serviceName);
+
+      return {
+        success: true,
+        webhookId: webhook.id,
+        message: 'Webhook registered successfully',
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      if (error.status) {
+        throw error;
+      }
+      throw new BadRequestException(`Failed to register webhook: ${error.message}`);
+    }
+  }
+
+  @Delete('register/:webhookId')
+  @UseGuards(ServiceNameOrJwtGuard)
+  @ApiOperation({ summary: 'Delete webhook by ID (Service-to-Service)' })
+  @ApiParam({ name: 'webhookId', description: 'Webhook ID to delete' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Webhook deleted successfully',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Webhook not found',
+  })
+  async deleteWebhookById(@Param('webhookId') webhookId: string): Promise<any> {
+    try {
+      const webhook = await this.webhookService.getWebhookById(webhookId);
+      if (!webhook) {
+        throw new NotFoundException('Webhook not found');
+      }
+
+      await this.webhookService.deleteWebhook(webhookId);
+
+      return {
+        success: true,
+        message: 'Webhook deleted successfully',
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      if (error.status) {
+        throw error;
+      }
+      throw new BadRequestException(`Failed to delete webhook: ${error.message}`);
+    }
+  }
+
+  @Delete('register')
+  @UseGuards(ServiceNameOrJwtGuard)
+  @ApiOperation({ summary: 'Delete webhook by URL (Service-to-Service)' })
+  @ApiQuery({
+    name: 'url',
+    required: true,
+    description: 'Webhook URL to delete (will be URL decoded)',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Webhook deleted successfully',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Webhook not found',
+  })
+  async deleteWebhookByUrl(@Query('url') url: string): Promise<any> {
+    try {
+      const decodedUrl = decodeURIComponent(url);
+      const webhooks = await this.webhookService.getWebhooks({ url: decodedUrl });
+
+      if (!webhooks || webhooks.length === 0) {
+        throw new NotFoundException('Webhook not found');
+      }
+
+      // Delete all webhooks with this URL (should be only one, but handle multiple)
+      for (const webhook of webhooks) {
+        await this.webhookService.deleteWebhook(webhook.id!);
+      }
+
+      return {
+        success: true,
+        message: 'Webhook deleted successfully',
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      if (error.status) {
+        throw error;
+      }
+      throw new BadRequestException(`Failed to delete webhook: ${error.message}`);
     }
   }
 }

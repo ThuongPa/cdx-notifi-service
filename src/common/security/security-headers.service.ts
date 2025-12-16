@@ -89,7 +89,7 @@ export class SecurityHeadersService {
       'Access-Control-Allow-Origin': process.env.CORS_ORIGIN || '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
       'Access-Control-Allow-Headers':
-        'Content-Type, Authorization, X-Requested-With, X-Correlation-ID',
+        'Content-Type, Authorization, X-Requested-With, X-Correlation-ID, X-Service-Name',
       'Access-Control-Allow-Credentials': 'true',
       'Access-Control-Max-Age': '86400', // 24 hours
     };

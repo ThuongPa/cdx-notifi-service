@@ -5,7 +5,7 @@ export type UserPreferencesDocument = UserPreferences & Document;
 
 @Schema({ timestamps: true })
 export class UserPreferences {
-  @Prop({ required: true, unique: true })
+  @Prop({ required: true })
   userId: string;
 
   @Prop({ type: Object, required: true })
